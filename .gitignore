@@ -15,7 +15,12 @@ dist-ssr
 data/meetings.json
 data/knowledge.json
 pb_data
+pb_data.server-backup-*/
 pocketbase
+pocketbase-*.backup-*
+pocketbase*.zip
+local-pb_data-*.tgz
+._pb_data
 
 # Editor directories and files
 .vscode/*
