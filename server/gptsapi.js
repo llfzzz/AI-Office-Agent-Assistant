@@ -10,27 +10,65 @@ export function normalizeBaseUrl(value) {
     .replace(/\/messages$/, '');
 }
 
-export function getProviderMeta() {
+function normalizeCustomBaseUrl(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/$/, '')
+    .replace(/\/chat\/completions$/, '')
+    .replace(/\/messages$/, '');
+}
+
+function resolveProviderConfig(provider = {}) {
+  const isCustom = provider.mode === 'custom';
+
   return {
-    base_url: normalizeBaseUrl(process.env.GPTSAPI_BASE_URL),
-    model: process.env.GPTSAPI_MODEL || DEFAULT_MODEL,
-    configured: hasProviderConfig(),
+    apiKey: isCustom
+      ? provider.api_key || ''
+      : provider.api_key || process.env.GPTSAPI_KEY || process.env.OPENAI_API_KEY || '',
+    baseUrl: isCustom
+      ? normalizeCustomBaseUrl(provider.base_url)
+      : normalizeBaseUrl(provider.base_url || process.env.GPTSAPI_BASE_URL),
+    model: isCustom
+      ? String(provider.model || '').trim()
+      : provider.model || process.env.GPTSAPI_MODEL || DEFAULT_MODEL,
+    mode: isCustom ? 'custom' : 'default',
   };
 }
 
-export function hasProviderConfig() {
-  return Boolean(process.env.GPTSAPI_KEY || process.env.OPENAI_API_KEY);
+export function getProviderMeta(provider = {}) {
+  const config = resolveProviderConfig(provider);
+
+  return {
+    base_url: config.baseUrl,
+    model: config.model,
+    configured: Boolean(config.apiKey),
+  };
+}
+
+export function hasProviderConfig(provider = {}) {
+  const config = resolveProviderConfig(provider);
+  return Boolean(config.apiKey && config.baseUrl && config.model);
 }
 
 export async function chatJson(messages, options = {}) {
-  const apiKey = process.env.GPTSAPI_KEY || process.env.OPENAI_API_KEY;
+  const provider = resolveProviderConfig(options.provider || {});
+  const apiKey = provider.apiKey;
 
   if (!apiKey) {
     throw new Error('GPTSAPI_KEY is not configured');
   }
 
-  const baseUrl = normalizeBaseUrl(process.env.GPTSAPI_BASE_URL);
-  const model = process.env.GPTSAPI_MODEL || DEFAULT_MODEL;
+  const baseUrl = provider.baseUrl;
+  const model = provider.model;
+
+  if (!baseUrl) {
+    throw new Error('AI base URL is not configured');
+  }
+
+  if (!model) {
+    throw new Error('AI model is not configured');
+  }
+
   const maxTokens = Number(options.max_tokens || process.env.GPTSAPI_MAX_TOKENS || 2000);
   const timeoutMs = Number(options.timeout_ms || process.env.GPTSAPI_TIMEOUT_MS || 45000);
   const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;

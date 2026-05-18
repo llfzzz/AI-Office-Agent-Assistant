@@ -1,21 +1,36 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   Bot,
   Brain,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
   CheckCircle2,
   ClipboardList,
   Database,
+  FilePlus2,
   History,
   Library,
   ListTodo,
   LogOut,
   Loader2,
+  Menu,
   Mic,
   MicOff,
   MessageSquare,
+  Network,
+  PanelLeftClose,
   Save,
   Search,
   Send,
@@ -23,15 +38,19 @@ import {
   ShieldCheck,
   Sparkles,
   Tags,
+  Trash2,
   Upload,
   UserPlus,
   UserRound,
   Wand2,
+  X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   analyzeMeeting,
   askMeeting,
   clearStoredToken,
+  deleteKnowledgeDocument,
   getHealth,
   getCurrentUser,
   getMeeting,
@@ -50,6 +69,17 @@ import {
   transcribeAudio,
 } from './api';
 import './App.css';
+import {
+  DEFAULT_GPTSAPI_BASE_URL,
+  GPTSAPI_CHAT_MODELS,
+  aiProviderIsLocallyConfigured,
+  defaultAiProviderSettings,
+  getStoredAiProviderSettings,
+  hasStoredAiProviderSettings,
+  normalizeAiProviderSettings,
+  storeAiProviderSettings,
+  type AiProviderSettings,
+} from './aiProvider';
 import { meetingTypes, sampleMeeting } from './sample';
 import type {
   ActionItem,
@@ -87,6 +117,20 @@ type View =
   | 'feedback'
   | 'docs';
 type AuthMode = 'login' | 'register';
+type NavGroupId = 'agent' | 'memory' | 'records';
+
+type NavItemDefinition = {
+  view: View;
+  label: string;
+  icon: LucideIcon;
+  disabled?: (context: { selectedMeeting: MeetingRecord | null }) => boolean;
+};
+
+type NavGroupDefinition = {
+  id: NavGroupId;
+  label: string;
+  items: NavItemDefinition[];
+};
 
 const blankForm: MeetingInput = {
   title: '',
@@ -180,11 +224,70 @@ const skillCards: Array<{
   },
 ];
 
+const navigationGroups: NavGroupDefinition[] = [
+  {
+    id: 'agent',
+    label: 'Skills',
+    items: [
+      { view: 'skills', label: 'Skill 工作台', icon: Sparkles },
+      { view: 'compose', label: '会议纪要', icon: Mic },
+      { view: 'weekly', label: '周报生成', icon: ClipboardList },
+      { view: 'prd', label: '需求评审', icon: ShieldCheck },
+    ],
+  },
+  {
+    id: 'memory',
+    label: '记忆与资料',
+    items: [
+      { view: 'rag', label: 'RAG 资料库', icon: Settings2 },
+      { view: 'library', label: '会议记忆库', icon: Library },
+      {
+        view: 'detail',
+        label: '会议追问',
+        icon: MessageSquare,
+        disabled: ({ selectedMeeting }) => !selectedMeeting,
+      },
+    ],
+  },
+  {
+    id: 'records',
+    label: '记录与迭代',
+    items: [
+      { view: 'outputs', label: '输出记录', icon: History },
+      { view: 'feedback', label: '反馈迭代', icon: MessageSquare },
+      { view: 'docs', label: '产品资料', icon: Tags },
+    ],
+  },
+];
+
+const initialOpenNavGroups: Record<NavGroupId, boolean> = {
+  agent: true,
+  memory: true,
+  records: true,
+};
+
+function getActiveNavItem(view: View) {
+  return navigationGroups.flatMap((group) => group.items).find((item) => item.view === view);
+}
+
 function App() {
   const [activeView, setActiveView] = useState<View>('skills');
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false,
+  );
+  const [isNavCollapsed, setIsNavCollapsed] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false,
+  );
+  const [openNavGroups, setOpenNavGroups] =
+    useState<Record<NavGroupId, boolean>>(initialOpenNavGroups);
+  const [utilityMenuOpen, setUtilityMenuOpen] = useState(false);
   const [form, setForm] = useState<MeetingInput>(blankForm);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() =>
+    getStoredAiProviderSettings(),
+  );
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [authForm, setAuthForm] = useState({ email: '', password: '', name: '' });
@@ -195,6 +298,7 @@ function App() {
   const [typeFilter, setTypeFilter] = useState('全部');
   const [question, setQuestion] = useState('');
   const [ragEnabled, setRagEnabled] = useState(false);
+  const [selectedKnowledgeId, setSelectedKnowledgeId] = useState('');
   const [knowledgeTitle, setKnowledgeTitle] = useState('默认会议资料库');
   const [knowledgeContent, setKnowledgeContent] = useState('');
   const [weeklyTask, setWeeklyTask] = useState<OfficeTaskInput>(blankWeeklyTask);
@@ -212,16 +316,29 @@ function App() {
   const [isAsking, setIsAsking] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSavingKnowledge, setIsSavingKnowledge] = useState(false);
+  const [isDeletingKnowledge, setIsDeletingKnowledge] = useState(false);
   const [isRunningOffice, setIsRunningOffice] = useState(false);
   const [isSavingOfficeOutput, setIsSavingOfficeOutput] = useState(false);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [officeListLoading, setOfficeListLoading] = useState(false);
   const [error, setError] = useState('');
+  const utilityMenuRef = useRef<HTMLDivElement | null>(null);
+  const activeNavItem = getActiveNavItem(activeView);
 
   useEffect(() => {
     getHealth()
-      .then(setHealth)
+      .then((payload) => {
+        setHealth(payload);
+
+        if (payload.provider?.model && !hasStoredAiProviderSettings()) {
+          setAiSettings((current) =>
+            current.mode === 'default'
+              ? { ...current, model: payload.provider.model }
+              : current,
+          );
+        }
+      })
       .catch(() => {
         setHealth(null);
       });
@@ -241,6 +358,39 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 760px)');
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      setIsMobileViewport(event.matches);
+      setIsNavCollapsed(event.matches);
+    };
+
+    mediaQuery.addEventListener('change', handleViewportChange);
+    return () => {
+      mediaQuery.removeEventListener('change', handleViewportChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!utilityMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && utilityMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setUtilityMenuOpen(false);
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [utilityMenuOpen]);
+
+  useEffect(() => {
     if (!session) {
       return;
     }
@@ -250,12 +400,18 @@ function App() {
         setKnowledgeDocuments(payload.documents);
         const firstDocument = payload.documents[0];
         if (firstDocument) {
+          setSelectedKnowledgeId(firstDocument.id);
           setKnowledgeTitle(firstDocument.title);
           setKnowledgeContent(firstDocument.content);
+        } else {
+          setSelectedKnowledgeId('');
+          setKnowledgeTitle('默认会议资料库');
+          setKnowledgeContent('');
         }
       })
       .catch((err) => {
         setKnowledgeDocuments([]);
+        setSelectedKnowledgeId('');
         setError(err instanceof Error ? err.message : '读取 RAG 资料库失败');
       });
   }, [session]);
@@ -338,6 +494,28 @@ function App() {
     };
   }, [meetings, officeFeedback.length, officeOutputs.length]);
 
+  function updateAiSettings(nextSettings: AiProviderSettings) {
+    const normalized = normalizeAiProviderSettings(nextSettings);
+    setAiSettings(normalized);
+    storeAiProviderSettings(normalized);
+  }
+
+  function handleNavSelect(view: View) {
+    setActiveView(view);
+    setUtilityMenuOpen(false);
+
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      setIsNavCollapsed(true);
+    }
+  }
+
+  function toggleNavGroup(groupId: NavGroupId) {
+    setOpenNavGroups((current) => ({
+      ...current,
+      [groupId]: !current[groupId],
+    }));
+  }
+
   async function handleAnalyze() {
     setError('');
     if (activeView === 'home') {
@@ -388,11 +566,15 @@ function App() {
 
     try {
       const payload = await saveKnowledgeDocument({
-        id: knowledgeDocuments[0]?.id,
+        id: selectedKnowledgeId || undefined,
         title: knowledgeTitle,
         content: knowledgeContent,
       });
-      setKnowledgeDocuments([payload.document]);
+      setKnowledgeDocuments((current) => [
+        payload.document,
+        ...current.filter((document) => document.id !== payload.document.id),
+      ]);
+      setSelectedKnowledgeId(payload.document.id);
       setKnowledgeTitle(payload.document.title);
       setKnowledgeContent(payload.document.content);
       setRagEnabled(true);
@@ -400,6 +582,47 @@ function App() {
       setError(err instanceof Error ? err.message : '保存资料库失败');
     } finally {
       setIsSavingKnowledge(false);
+    }
+  }
+
+  function handleSelectKnowledge(document: KnowledgeDocument) {
+    setSelectedKnowledgeId(document.id);
+    setKnowledgeTitle(document.title);
+    setKnowledgeContent(document.content);
+  }
+
+  function handleNewKnowledge() {
+    setSelectedKnowledgeId('');
+    setKnowledgeTitle('新资料库');
+    setKnowledgeContent('');
+  }
+
+  async function handleDeleteKnowledge() {
+    if (!selectedKnowledgeId) return;
+
+    if (!window.confirm('确定删除这个资料库吗？删除后无法恢复。')) {
+      return;
+    }
+
+    setError('');
+    setIsDeletingKnowledge(true);
+
+    try {
+      await deleteKnowledgeDocument(selectedKnowledgeId);
+      const nextDocuments = knowledgeDocuments.filter(
+        (document) => document.id !== selectedKnowledgeId,
+      );
+      const nextSelected = nextDocuments[0];
+
+      setKnowledgeDocuments(nextDocuments);
+      setSelectedKnowledgeId(nextSelected?.id || '');
+      setKnowledgeTitle(nextSelected?.title || '默认会议资料库');
+      setKnowledgeContent(nextSelected?.content || '');
+      setRagEnabled((enabled) => enabled && nextDocuments.length > 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除资料库失败');
+    } finally {
+      setIsDeletingKnowledge(false);
     }
   }
 
@@ -518,6 +741,10 @@ function App() {
     setSession(null);
     setMeetings([]);
     setKnowledgeDocuments([]);
+    setSelectedKnowledgeId('');
+    setKnowledgeTitle('默认会议资料库');
+    setKnowledgeContent('');
+    setRagEnabled(false);
     setOfficeOutputs([]);
     setOfficeFeedback([]);
     setSelectedMeetingId('');
@@ -570,120 +797,108 @@ function App() {
   }
 
   return (
-    <div className={activeView === 'home' ? 'app-shell home-shell' : 'app-shell'}>
+    <div
+      className={[
+        activeView === 'home' ? 'app-shell home-shell' : 'app-shell',
+        activeView !== 'home' && isNavCollapsed ? 'nav-collapsed' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       {activeView !== 'home' && (
-        <aside className="sidebar" aria-label="应用导航">
-          <div className="brand">
-            <div className="brand-mark">
-              <Brain size={22} strokeWidth={2.2} />
+        <aside
+          className={isNavCollapsed ? 'sidebar collapsed' : 'sidebar'}
+          aria-label="应用导航"
+        >
+          <div className="sidebar-top">
+            <div className="brand">
+              <div className="brand-mark">
+                <Brain size={22} strokeWidth={2.2} />
+              </div>
+              <div className="brand-copy">
+                <strong>Office Agent</strong>
+                <span>{session.user.name || session.user.email}</span>
+              </div>
             </div>
-            <div>
-              <strong>Office Agent</strong>
-              <span>{session.user.name || session.user.email}</span>
+            <span className="active-view-label">{activeNavItem?.label || '工作台'}</span>
+            <div className="sidebar-actions">
+              <UtilityMenu
+                refEl={utilityMenuRef}
+                health={health}
+                isOpen={utilityMenuOpen}
+                settings={aiSettings}
+                userLabel={session.user.name || session.user.email}
+                onOpenChange={setUtilityMenuOpen}
+                onOpenSettings={() => setAiSettingsOpen(true)}
+                onLogout={handleLogout}
+              />
+              <button
+                type="button"
+                className="icon-button nav-collapse-toggle"
+                aria-label={isNavCollapsed ? '展开导航' : '收起导航'}
+                aria-expanded={!isNavCollapsed}
+                onClick={() => setIsNavCollapsed((collapsed) => !collapsed)}
+              >
+                {isMobileViewport ? (
+                  isNavCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />
+                ) : isNavCollapsed ? (
+                  <Menu size={18} />
+                ) : (
+                  <PanelLeftClose size={18} />
+                )}
+              </button>
             </div>
           </div>
 
-          <nav className="nav-stack">
-            <button
-              type="button"
-              className={activeView === 'skills' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('skills')}
-            >
-              <Sparkles size={18} />
-              Skill 工作台
-            </button>
-            <button
-              type="button"
-              className={activeView === 'compose' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('compose')}
-            >
-              <Mic size={18} />
-              会议纪要
-            </button>
-            <button
-              type="button"
-              className={activeView === 'weekly' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('weekly')}
-            >
-              <ClipboardList size={18} />
-              周报生成
-            </button>
-            <button
-              type="button"
-              className={activeView === 'prd' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('prd')}
-            >
-              <ShieldCheck size={18} />
-              需求评审
-            </button>
-            <button
-              type="button"
-              className={activeView === 'rag' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('rag')}
-            >
-              <Settings2 size={18} />
-              RAG 资料库
-            </button>
-            <button
-              type="button"
-              className={activeView === 'outputs' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('outputs')}
-            >
-              <History size={18} />
-              输出记录
-            </button>
-            <button
-              type="button"
-              className={activeView === 'feedback' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('feedback')}
-            >
-              <MessageSquare size={18} />
-              反馈迭代
-            </button>
-            <button
-              type="button"
-              className={activeView === 'library' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('library')}
-            >
-              <Library size={18} />
-              会议记忆库
-            </button>
-            <button
-              type="button"
-              className={activeView === 'detail' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('detail')}
-              disabled={!selectedMeeting}
-            >
-              <MessageSquare size={18} />
-              会议追问
-            </button>
-            <button
-              type="button"
-              className={activeView === 'docs' ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveView('docs')}
-            >
-              <Tags size={18} />
-              产品资料
-            </button>
+          <nav className="nav-stack" aria-label="主导航">
+            {navigationGroups.map((group) => {
+              const hasActiveItem = group.items.some((item) => item.view === activeView);
+              const isOpen = openNavGroups[group.id];
+
+              return (
+                <div
+                  key={group.id}
+                  className={hasActiveItem ? 'nav-group active' : 'nav-group'}
+                >
+                  <button
+                    type="button"
+                    className="nav-group-toggle"
+                    aria-expanded={isOpen}
+                    onClick={() => toggleNavGroup(group.id)}
+                  >
+                    {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <span>{group.label}</span>
+                  </button>
+                  <div className="nav-group-items" hidden={!isOpen && !isNavCollapsed}>
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const disabled = item.disabled?.({ selectedMeeting }) || false;
+
+                      return (
+                        <button
+                          key={item.view}
+                          type="button"
+                          title={item.label}
+                          className={activeView === item.view ? 'nav-item active' : 'nav-item'}
+                          onClick={() => handleNavSelect(item.view)}
+                          disabled={disabled}
+                        >
+                          <Icon size={18} />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </nav>
-
-          <div className="sidebar-panel">
-            <span className="eyebrow">连接状态</span>
-            <SourceBadge configured={Boolean(health?.provider.configured)} />
-            <p>{health?.provider.configured ? health.provider.model : '未配置 API_KEY'}</p>
-            <p>{health?.database?.ok ? `PocketBase：${health.database.url}` : 'PocketBase 未连接'}</p>
-          </div>
 
           <div className="metric-grid">
             <Metric label="会议" value={stats.meetings} />
             <Metric label="输出" value={stats.outputs} />
             <Metric label="反馈" value={stats.feedback} />
           </div>
-
-          <button type="button" className="nav-item logout-item" onClick={handleLogout}>
-            <LogOut size={18} />
-            退出登录
-          </button>
         </aside>
       )}
 
@@ -786,13 +1001,18 @@ function App() {
           <RagView
             enabled={ragEnabled}
             documents={knowledgeDocuments}
+            selectedDocumentId={selectedKnowledgeId}
             title={knowledgeTitle}
             content={knowledgeContent}
             isSaving={isSavingKnowledge}
+            isDeleting={isDeletingKnowledge}
             onEnabled={setRagEnabled}
+            onSelectDocument={handleSelectKnowledge}
+            onNewDocument={handleNewKnowledge}
             onTitle={setKnowledgeTitle}
             onContent={setKnowledgeContent}
             onSave={handleSaveKnowledge}
+            onDelete={handleDeleteKnowledge}
           />
         )}
 
@@ -820,6 +1040,14 @@ function App() {
 
         {activeView === 'docs' && <ProductDocsView />}
       </main>
+
+      <AiSettingsModal
+        health={health}
+        isOpen={aiSettingsOpen}
+        settings={aiSettings}
+        onClose={() => setAiSettingsOpen(false)}
+        onSettingsChange={updateAiSettings}
+      />
     </div>
   );
 }
@@ -922,8 +1150,8 @@ function AuthView({
         </button>
 
         <div className="auth-status">
-          <span>{health?.database?.ok ? 'PocketBase 已连接' : 'PocketBase 未连接'}</span>
-          <span>{health?.database?.url || 'http://127.0.0.1:8090'}</span>
+          <span>{health?.provider.configured ? 'API 已连接' : '演示模式'}</span>
+          <span>{health?.provider.configured ? health.provider.model : '未配置 API_KEY'}</span>
         </div>
       </form>
     </main>
@@ -1728,13 +1956,18 @@ function ProductDocsView() {
 function RagView(props: {
   enabled: boolean;
   documents: KnowledgeDocument[];
+  selectedDocumentId: string;
   title: string;
   content: string;
   isSaving: boolean;
+  isDeleting: boolean;
   onEnabled: (enabled: boolean) => void;
+  onSelectDocument: (document: KnowledgeDocument) => void;
+  onNewDocument: () => void;
   onTitle: (value: string) => void;
   onContent: (value: string) => void;
   onSave: () => void;
+  onDelete: () => void;
 }) {
   return (
     <section className="rag-page">
@@ -1966,25 +2199,37 @@ function AudioTranscriptionPanel({
 function RagPanel({
   enabled,
   documents,
+  selectedDocumentId,
   title,
   content,
   isSaving,
+  isDeleting,
   onEnabled,
+  onSelectDocument,
+  onNewDocument,
   onTitle,
   onContent,
   onSave,
+  onDelete,
 }: {
   enabled: boolean;
   documents: KnowledgeDocument[];
+  selectedDocumentId: string;
   title: string;
   content: string;
   isSaving: boolean;
+  isDeleting: boolean;
   onEnabled: (enabled: boolean) => void;
+  onSelectDocument: (document: KnowledgeDocument) => void;
+  onNewDocument: () => void;
   onTitle: (value: string) => void;
   onContent: (value: string) => void;
   onSave: () => void;
+  onDelete: () => void;
 }) {
   const canEnable = documents.length > 0;
+  const selectedDocument = documents.find((document) => document.id === selectedDocumentId);
+  const selectedLabel = selectedDocument ? '正在编辑已保存资料库' : '正在新建资料库';
 
   return (
     <div className="panel rag-panel">
@@ -2004,27 +2249,76 @@ function RagPanel({
         </label>
       </div>
 
-      <div className="form-grid single">
-        <label>
-          资料库名称
-          <input value={title} onChange={(event) => onTitle(event.target.value)} placeholder="例如：产品背景资料" />
-        </label>
-        <label>
-          资料库内容
-          <textarea
-            value={content}
-            onChange={(event) => onContent(event.target.value)}
-            placeholder="粘贴项目背景、业务规则、术语表或协作约定。保存后才能启用 RAG。"
-          />
-        </label>
-      </div>
+      <div className="rag-management">
+        <aside className="rag-document-list" aria-label="已保存资料库">
+          <div className="rag-list-header">
+            <span>已保存资料</span>
+            <button type="button" className="rag-new-button" onClick={onNewDocument}>
+              <FilePlus2 size={16} />
+              新建
+            </button>
+          </div>
 
-      <div className="button-row tight">
-        <button type="button" className="button secondary" onClick={onSave} disabled={isSaving || !content.trim()}>
-          {isSaving ? <Loader2 className="spin" size={17} /> : <Settings2 size={17} />}
-          保存资料库
-        </button>
-        <span className="rag-hint">{canEnable ? `${documents.length} 个资料库可用` : '默认关闭，保存资料库后可启用'}</span>
+          {documents.length > 0 ? (
+            <div className="rag-doc-items">
+              {documents.map((document) => (
+                <button
+                  key={document.id}
+                  type="button"
+                  className={document.id === selectedDocumentId ? 'rag-doc-button active' : 'rag-doc-button'}
+                  onClick={() => onSelectDocument(document)}
+                >
+                  <strong>{document.title}</strong>
+                  <span>
+                    {document.content.length} 字 · {new Date(document.updated_at).toLocaleString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rag-empty-state">
+              <Database size={22} />
+              <span>还没有保存的资料库</span>
+            </div>
+          )}
+        </aside>
+
+        <div className="rag-editor">
+          <span className="rag-edit-state">{selectedLabel}</span>
+          <div className="form-grid single">
+            <label>
+              资料库名称
+              <input value={title} onChange={(event) => onTitle(event.target.value)} placeholder="例如：产品背景资料" />
+            </label>
+            <label>
+              资料库内容
+              <textarea
+                value={content}
+                onChange={(event) => onContent(event.target.value)}
+                placeholder="粘贴项目背景、业务规则、术语表或协作约定。保存后才能启用 RAG。"
+              />
+            </label>
+          </div>
+
+          <div className="button-row tight rag-editor-actions">
+            <div className="rag-primary-actions">
+              <button type="button" className="button secondary" onClick={onSave} disabled={isSaving || !content.trim()}>
+                {isSaving ? <Loader2 className="spin" size={17} /> : <Settings2 size={17} />}
+                {selectedDocumentId ? '更新资料库' : '保存资料库'}
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={onDelete}
+                disabled={!selectedDocumentId || isDeleting}
+              >
+                {isDeleting ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
+                删除
+              </button>
+            </div>
+            <span className="rag-hint">{canEnable ? `${documents.length} 个资料库可用` : '默认关闭，保存资料库后可启用'}</span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2411,6 +2705,247 @@ function ListBlock<T>({
         </ul>
       )}
     </section>
+  );
+}
+
+function UtilityMenu({
+  refEl,
+  health,
+  isOpen,
+  settings,
+  userLabel,
+  onOpenChange,
+  onOpenSettings,
+  onLogout,
+}: {
+  refEl: RefObject<HTMLDivElement | null>;
+  health: HealthResponse | null;
+  isOpen: boolean;
+  settings: AiProviderSettings;
+  userLabel: string;
+  onOpenChange: (open: boolean) => void;
+  onOpenSettings: () => void;
+  onLogout: () => void;
+}) {
+  const configured =
+    settings.mode === 'custom'
+      ? aiProviderIsLocallyConfigured(settings)
+      : Boolean(health?.provider.configured);
+  const displayModel =
+    settings.mode === 'custom'
+      ? settings.model.trim() || '自定义模型'
+      : settings.model || health?.provider.model || defaultAiProviderSettings.model;
+
+  return (
+    <div className="utility-menu" ref={refEl}>
+      <button
+        type="button"
+        className="icon-button utility-trigger"
+        aria-label="打开设置菜单"
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        onClick={() => onOpenChange(!isOpen)}
+      >
+        <Settings2 size={18} />
+      </button>
+
+      {isOpen && (
+        <div className="utility-popover" role="menu">
+          <div className="utility-status">
+            <span className="eyebrow">当前账号</span>
+            <strong>{userLabel}</strong>
+            <SourceBadge configured={configured} />
+            <p>{configured ? displayModel : '未配置 API_KEY'}</p>
+          </div>
+          <button
+            type="button"
+            className="utility-item"
+            role="menuitem"
+            onClick={() => {
+              onOpenSettings();
+              onOpenChange(false);
+            }}
+          >
+            <Network size={17} />
+            API 设置
+          </button>
+          <button
+            type="button"
+            className="utility-item danger"
+            role="menuitem"
+            onClick={() => {
+              onOpenChange(false);
+              onLogout();
+            }}
+          >
+            <LogOut size={17} />
+            退出登录
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiSettingsModal({
+  health,
+  isOpen,
+  settings,
+  onClose,
+  onSettingsChange,
+}: {
+  health: HealthResponse | null;
+  isOpen: boolean;
+  settings: AiProviderSettings;
+  onClose: () => void;
+  onSettingsChange: (settings: AiProviderSettings) => void;
+}) {
+  const configured =
+    settings.mode === 'custom'
+      ? aiProviderIsLocallyConfigured(settings)
+      : Boolean(health?.provider.configured);
+  const displayModel =
+    settings.mode === 'custom'
+      ? settings.model.trim() || '自定义模型'
+      : settings.model || health?.provider.model || defaultAiProviderSettings.model;
+  const defaultModelOptions = GPTSAPI_CHAT_MODELS.includes(settings.model)
+    ? GPTSAPI_CHAT_MODELS
+    : [settings.model, ...GPTSAPI_CHAT_MODELS].filter(Boolean);
+
+  function update(patch: Partial<AiProviderSettings>) {
+    onSettingsChange({ ...settings, ...patch });
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-settings-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="modal-header">
+          <div>
+            <span className="eyebrow">API 设置</span>
+            <h2 id="ai-settings-title">AI 连接配置</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="关闭 API 设置" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="modal-status">
+          <SourceBadge configured={configured} />
+          <p>{configured ? displayModel : '未配置 API_KEY'}</p>
+        </div>
+
+        <div className="ai-provider-form">
+          <div className="ai-mode-tabs">
+            <button
+              type="button"
+              className={settings.mode === 'default' ? 'active' : ''}
+              onClick={() =>
+                update({
+                  mode: 'default',
+                  baseUrl: DEFAULT_GPTSAPI_BASE_URL,
+                  apiKey: '',
+                  model: settings.model || defaultAiProviderSettings.model,
+                })
+              }
+            >
+              默认 GPTSAPI
+            </button>
+            <button
+              type="button"
+              className={settings.mode === 'custom' ? 'active' : ''}
+              onClick={() =>
+                update({
+                  mode: 'custom',
+                  baseUrl: '',
+                  apiKey: '',
+                  model: '',
+                })
+              }
+            >
+              自定义网络
+            </button>
+          </div>
+
+          {settings.mode === 'default' ? (
+            <>
+              <label>
+                默认网络
+                <input value={DEFAULT_GPTSAPI_BASE_URL} disabled readOnly />
+              </label>
+              <label>
+                模型
+                <select
+                  value={settings.model}
+                  onChange={(event) => update({ model: event.target.value })}
+                >
+                  {defaultModelOptions.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                API Base URL
+                <input
+                  value={settings.baseUrl}
+                  onChange={(event) => update({ baseUrl: event.target.value })}
+                  placeholder="https://api.example.com/v1"
+                />
+              </label>
+              <label>
+                API Key
+                <input
+                  type="password"
+                  value={settings.apiKey}
+                  onChange={(event) => update({ apiKey: event.target.value })}
+                  placeholder="sk-..."
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                模型名称
+                <input
+                  value={settings.model}
+                  onChange={(event) => update({ model: event.target.value })}
+                  placeholder="model-id"
+                />
+              </label>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 

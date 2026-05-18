@@ -77,6 +77,10 @@ export async function saveKnowledgeDocument(context, input) {
   return recordToDocument(record);
 }
 
+export async function deleteKnowledgeDocument(context, id) {
+  await context.pb.collection('knowledge_documents').delete(id);
+}
+
 export async function retrieveRagContext(context, query, options = {}) {
   if (!options.enabled) {
     return { enabled: false, sources: [], context: '' };

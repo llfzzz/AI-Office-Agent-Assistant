@@ -73,20 +73,22 @@ function normalizeOfficeQualityCheck(check) {
   };
 }
 
-export async function analyzeMeeting(input, context) {
+export async function analyzeMeeting(input, context, provider = {}) {
   const ragContext = await retrieveRagContext(context, input.raw_transcript, input.rag || {});
 
-  if (!hasProviderConfig()) {
+  if (!hasProviderConfig(provider)) {
     const result = fallbackAnalysis(input);
     return { ...result, rag: ragContext };
   }
 
   try {
     const meeting_understanding = await chatJson(buildUnderstandingMessages(input, ragContext), {
+      provider,
       temperature: 0.1,
       max_tokens: 700,
     });
     const minutes = await chatJson(buildMinutesMessages(input, meeting_understanding, ragContext), {
+      provider,
       temperature: 0.15,
       max_tokens: 2200,
     });
@@ -97,7 +99,7 @@ export async function analyzeMeeting(input, context) {
     try {
       quality_check = await chatJson(
         buildQualityCheckMessages(input, structured_minutes),
-        { temperature: 0, max_tokens: 700, timeout_ms: 8000 },
+        { provider, temperature: 0, max_tokens: 700, timeout_ms: 8000 },
       );
     } catch (error) {
       warnings.push(`质量自检未完成：${error instanceof Error ? error.message : String(error)}`);
@@ -113,7 +115,7 @@ export async function analyzeMeeting(input, context) {
 
     return {
       source: 'gptsapi',
-      provider: getProviderMeta(),
+      provider: getProviderMeta(provider),
       warnings,
       rag: ragContext,
       meeting_understanding,
@@ -126,10 +128,10 @@ export async function analyzeMeeting(input, context) {
   }
 }
 
-export async function planOfficeTask(input, context) {
+export async function planOfficeTask(input, context, provider = {}) {
   const ragContext = await retrieveRagContext(context, officeQuery(input), input.rag || {});
 
-  if (!hasProviderConfig()) {
+  if (!hasProviderConfig(provider)) {
     return {
       source: 'demo-fallback',
       provider: null,
@@ -141,13 +143,14 @@ export async function planOfficeTask(input, context) {
 
   try {
     const plan = await chatJson(buildOfficePlanMessages(input, ragContext), {
+      provider,
       temperature: 0.1,
       max_tokens: 900,
     });
 
     return {
       source: 'gptsapi',
-      provider: getProviderMeta(),
+      provider: getProviderMeta(provider),
       warnings: [],
       rag: ragContext,
       agent_plan: normalizeAgentPlan(plan, input, ragContext),
@@ -163,7 +166,7 @@ export async function planOfficeTask(input, context) {
   }
 }
 
-export async function runOfficeSkill(input, context) {
+export async function runOfficeSkill(input, context, provider = {}) {
   const ragContext = await retrieveRagContext(context, officeQuery(input), input.rag || {});
 
   if (input.skill_id === 'meeting_minutes') {
@@ -177,6 +180,7 @@ export async function runOfficeSkill(input, context) {
         rag: input.rag,
       },
       context,
+      provider,
     );
     const plan = fallbackOfficePlan(input, meetingAnalysis.rag || ragContext);
 
@@ -202,12 +206,13 @@ export async function runOfficeSkill(input, context) {
     };
   }
 
-  if (!hasProviderConfig()) {
+  if (!hasProviderConfig(provider)) {
     return fallbackOfficeRun(input, ragContext);
   }
 
   try {
     const planPayload = await chatJson(buildOfficePlanMessages(input, ragContext), {
+      provider,
       temperature: 0.1,
       max_tokens: 900,
     });
@@ -217,6 +222,7 @@ export async function runOfficeSkill(input, context) {
         ? buildPrdReviewMessages(input, agent_plan, ragContext)
         : buildWeeklyReportMessages(input, agent_plan, ragContext);
     const skill_output = await chatJson(messages, {
+      provider,
       temperature: 0.15,
       max_tokens: agent_plan.selected_skill === 'prd_review' ? 2600 : 1800,
     });
@@ -225,6 +231,7 @@ export async function runOfficeSkill(input, context) {
 
     try {
       const check = await chatJson(buildOfficeQualityCheckMessages(input, agent_plan, skill_output), {
+        provider,
         temperature: 0,
         max_tokens: 800,
         timeout_ms: 9000,
@@ -241,7 +248,7 @@ export async function runOfficeSkill(input, context) {
 
     return {
       source: 'gptsapi',
-      provider: getProviderMeta(),
+      provider: getProviderMeta(provider),
       warnings,
       rag: ragContext,
       agent_plan,
@@ -253,13 +260,14 @@ export async function runOfficeSkill(input, context) {
   }
 }
 
-export async function summarizeFeedback(input) {
-  if (!hasProviderConfig()) {
+export async function summarizeFeedback(input, provider = {}) {
+  if (!hasProviderConfig(provider)) {
     return fallbackFeedbackSummary(input);
   }
 
   try {
     return await chatJson(buildFeedbackSummaryMessages(input), {
+      provider,
       temperature: 0.1,
       max_tokens: 800,
     });
@@ -268,13 +276,14 @@ export async function summarizeFeedback(input) {
   }
 }
 
-export async function answerQuestion(meeting, question) {
-  if (!hasProviderConfig()) {
+export async function answerQuestion(meeting, question, provider = {}) {
+  if (!hasProviderConfig(provider)) {
     return fallbackAnswer(meeting, question);
   }
 
   try {
     const answer = await chatJson(buildAskMessages(meeting, question), {
+      provider,
       temperature: 0.1,
     });
 

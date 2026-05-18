@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeMeeting, answerQuestion, planOfficeTask, runOfficeSkill, summarizeFeedback } from './analyzer.js';
 import { getProviderMeta } from './gptsapi.js';
-import { listKnowledgeDocuments, saveKnowledgeDocument } from './rag.js';
+import { deleteKnowledgeDocument, listKnowledgeDocuments, saveKnowledgeDocument } from './rag.js';
 import {
   appendQuestionAnswer,
   getMeeting,
@@ -41,6 +41,22 @@ function authPayload(authData) {
       name: authData.record.name || '',
     },
   };
+}
+
+function readAiProvider(req) {
+  const mode = String(req.get('x-ai-provider-mode') || 'default').trim();
+  const model = String(req.get('x-ai-model') || '').trim();
+
+  if (mode === 'custom') {
+    return {
+      mode: 'custom',
+      api_key: String(req.get('x-ai-api-key') || '').trim(),
+      base_url: String(req.get('x-ai-base-url') || '').trim(),
+      model,
+    };
+  }
+
+  return model ? { model } : {};
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -124,7 +140,7 @@ app.post('/api/meetings/analyze', async (req, res) => {
       return;
     }
 
-    const analysis = await analyzeMeeting(req.body, context);
+    const analysis = await analyzeMeeting(req.body, context, readAiProvider(req));
     res.json(analysis);
   } catch (error) {
     sendError(res, error);
@@ -169,6 +185,16 @@ app.post('/api/knowledge', async (req, res) => {
     res.status(201).json({ document });
   } catch (error) {
     sendError(res, error, 400);
+  }
+});
+
+app.delete('/api/knowledge/:id', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    await deleteKnowledgeDocument(context, req.params.id);
+    res.status(204).end();
+  } catch (error) {
+    sendError(res, error, 404);
   }
 });
 
@@ -233,7 +259,7 @@ app.post('/api/meetings/:id/ask', async (req, res) => {
       return;
     }
 
-    const answer = await answerQuestion(meeting, question);
+    const answer = await answerQuestion(meeting, question, readAiProvider(req));
     const qa = await appendQuestionAnswer(context, req.params.id, {
       question,
       ...answer,
@@ -254,7 +280,7 @@ app.post('/api/office/plan', async (req, res) => {
       return;
     }
 
-    const result = await planOfficeTask(req.body, context);
+    const result = await planOfficeTask(req.body, context, readAiProvider(req));
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -270,7 +296,7 @@ app.post('/api/office/run', async (req, res) => {
       return;
     }
 
-    const result = await runOfficeSkill(req.body, context);
+    const result = await runOfficeSkill(req.body, context, readAiProvider(req));
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -342,7 +368,7 @@ app.post('/api/office/outputs/:id/feedback', async (req, res) => {
     const feedbackSummary = await summarizeFeedback({
       output,
       feedback: req.body,
-    });
+    }, readAiProvider(req));
     const feedback = await saveOfficeFeedback(context, req.params.id, req.body, feedbackSummary);
     res.status(201).json({ feedback });
   } catch (error) {
