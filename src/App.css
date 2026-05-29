@@ -614,14 +614,6 @@
   width: 100%;
 }
 
-.auth-status {
-  display: grid;
-  gap: 4px;
-  color: var(--steel);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
 .hero-copy h1 {
   max-width: 760px;
   margin: 0 0 24px;

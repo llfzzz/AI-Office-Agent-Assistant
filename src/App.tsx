@@ -786,7 +786,6 @@ function App() {
       <AuthView
         mode={authMode}
         form={authForm}
-        health={health}
         error={error}
         isLoading={isAuthLoading}
         onMode={setAuthMode}
@@ -1055,7 +1054,6 @@ function App() {
 function AuthView({
   mode,
   form,
-  health,
   error,
   isLoading,
   onMode,
@@ -1064,7 +1062,6 @@ function AuthView({
 }: {
   mode: AuthMode;
   form: { email: string; password: string; name: string };
-  health: HealthResponse | null;
   error: string;
   isLoading: boolean;
   onMode: (mode: AuthMode) => void;
@@ -1148,11 +1145,6 @@ function AuthView({
           {isLoading ? <Loader2 className="spin" size={17} /> : mode === 'login' ? <UserRound size={17} /> : <UserPlus size={17} />}
           {mode === 'login' ? '登录并连接' : '注册并进入'}
         </button>
-
-        <div className="auth-status">
-          <span>{health?.provider.configured ? 'API 已连接' : '演示模式'}</span>
-          <span>{health?.provider.configured ? health.provider.model : '未配置 API_KEY'}</span>
-        </div>
       </form>
     </main>
   );
