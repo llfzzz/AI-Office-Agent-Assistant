@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeMeeting, answerQuestion, planOfficeTask, runOfficeSkill, summarizeFeedback } from './analyzer.js';
-import { getProviderMeta } from './gptsapi.js';
+import { getProviderMeta } from './gemini.js';
 import { deleteKnowledgeDocument, listKnowledgeDocuments, saveKnowledgeDocument } from './rag.js';
 import {
   appendQuestionAnswer,
@@ -19,17 +19,33 @@ import {
 } from './storage.js';
 import { checkPocketBase, createPocketBaseClient, requireAuth } from './pocketbase.js';
 import { transcribeAudio } from './transcriber.js';
+import { extractMeetingFile } from './extractor.js';
 
 const app = express();
-const port = Number(process.env.PORT || 8787);
+const port = Number(process.env.PORT || 8788);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '..', 'dist');
+const appBasePath = String(process.env.APP_BASE_PATH || '/office-agent').replace(/\/$/, '');
 
-app.use(express.json({ limit: '2mb' }));
+app.use((req, _res, next) => {
+  if (appBasePath && appBasePath !== '/' && req.url.startsWith(`${appBasePath}/api`)) {
+    req.url = req.url.slice(appBasePath.length) || '/';
+  }
+
+  next();
+});
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10mb' }));
 
 function sendError(res, error, fallbackStatus = 500) {
   const status = typeof error?.status === 'number' ? error.status : fallbackStatus;
-  res.status(status).json({ error: error instanceof Error ? error.message : String(error) });
+  const details = Object.entries(error?.data?.data || {})
+    .map(([field, value]) => `${field}: ${value?.message || String(value)}`)
+    .join('; ');
+  const message = error instanceof Error ? error.message : String(error);
+  const responseMessage = details ? `${message}: ${details}` : message;
+
+  console.error(`[api] ${status}: ${responseMessage}`);
+  res.status(status).json({ error: responseMessage });
 }
 
 function authPayload(authData) {
@@ -45,18 +61,17 @@ function authPayload(authData) {
 
 function readAiProvider(req) {
   const mode = String(req.get('x-ai-provider-mode') || 'default').trim();
-  const model = String(req.get('x-ai-model') || '').trim();
 
   if (mode === 'custom') {
     return {
       mode: 'custom',
       api_key: String(req.get('x-ai-api-key') || '').trim(),
       base_url: String(req.get('x-ai-base-url') || '').trim(),
-      model,
+      model: String(req.get('x-ai-model') || '').trim(),
     };
   }
 
-  return model ? { model } : {};
+  return {};
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -160,7 +175,27 @@ app.post(
         mimeType: req.get('content-type'),
         fileName: req.get('x-file-name'),
         language: req.get('x-audio-language'),
-      });
+      }, readAiProvider(req));
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+);
+
+app.post(
+  '/api/files/extract',
+  express.raw({
+    type: '*/*',
+    limit: '25mb',
+  }),
+  async (req, res) => {
+    try {
+      await requireAuth(req);
+      const result = await extractMeetingFile(req.body, {
+        mimeType: req.get('content-type'),
+        fileName: req.get('x-file-name'),
+      }, readAiProvider(req));
       res.json(result);
     } catch (error) {
       sendError(res, error);

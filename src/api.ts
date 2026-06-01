@@ -3,6 +3,7 @@ import type {
   AuthSession,
   HealthResponse,
   KnowledgeDocument,
+  FileExtractionResponse,
   MeetingInput,
   MeetingRecord,
   OfficeFeedbackInput,
@@ -13,11 +14,7 @@ import type {
   QAEntry,
   TranscriptionResponse,
 } from './types';
-import {
-  DEFAULT_GPTSAPI_BASE_URL,
-  getStoredAiProviderSettings,
-  hasStoredAiProviderSettings,
-} from './aiProvider';
+import { aiProviderIsLocallyConfigured, getStoredAiProviderSettings } from './aiProvider';
 
 const AUTH_TOKEN_KEY = 'meeting-memory-auth-token';
 const API_PREFIX = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
@@ -29,7 +26,7 @@ function apiUrl(path: string) {
 function getAiProviderHeaders(): Record<string, string> {
   const settings = getStoredAiProviderSettings();
 
-  if (settings.mode === 'custom') {
+  if (settings.mode === 'custom' && aiProviderIsLocallyConfigured(settings)) {
     return {
       'X-AI-Provider-Mode': 'custom',
       'X-AI-Base-URL': settings.baseUrl,
@@ -38,16 +35,8 @@ function getAiProviderHeaders(): Record<string, string> {
     };
   }
 
-  if (!hasStoredAiProviderSettings()) {
-    return {
-      'X-AI-Provider-Mode': 'default',
-    };
-  }
-
   return {
     'X-AI-Provider-Mode': 'default',
-    'X-AI-Base-URL': DEFAULT_GPTSAPI_BASE_URL,
-    'X-AI-Model': settings.model,
   };
 }
 
@@ -158,6 +147,7 @@ export async function transcribeAudio(file: Blob, options: { fileName?: string; 
     method: 'POST',
     headers: {
       'Content-Type': file.type || 'application/octet-stream',
+      ...getAiProviderHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.fileName ? { 'X-File-Name': encodeURIComponent(options.fileName) } : {}),
       ...(options.language ? { 'X-Audio-Language': options.language } : {}),
@@ -171,6 +161,27 @@ export async function transcribeAudio(file: Blob, options: { fileName?: string; 
   }
 
   return response.json() as Promise<TranscriptionResponse>;
+}
+
+export async function extractMeetingFile(file: Blob, options: { fileName?: string } = {}) {
+  const token = getStoredToken();
+  const response = await fetch(apiUrl('/files/extract'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+      ...getAiProviderHeaders(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.fileName ? { 'X-File-Name': encodeURIComponent(options.fileName) } : {}),
+    },
+    body: file,
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<FileExtractionResponse>;
 }
 
 export function listKnowledgeDocuments() {

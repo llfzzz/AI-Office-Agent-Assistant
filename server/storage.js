@@ -8,6 +8,87 @@ function normalizeJson(value, fallback) {
   return value;
 }
 
+function normalizeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeDecisions(value) {
+  return normalizeArray(value).map((item) =>
+    typeof item === 'string'
+      ? { decision: item, evidence: '', confidence: 'medium' }
+      : {
+          decision: item?.decision || item?.content || '未提及',
+          evidence: item?.evidence || '',
+          confidence: item?.confidence || 'medium',
+        },
+  );
+}
+
+function normalizeActionItems(value) {
+  return normalizeArray(value).map((item) =>
+    typeof item === 'string'
+      ? { task: item, owner: '未提及', deadline: '未提及', priority: 'medium', evidence: '' }
+      : {
+          task: item?.task || item?.content || '未提及',
+          owner: item?.owner || '未提及',
+          deadline: item?.deadline || '未提及',
+          priority: item?.priority || 'medium',
+          evidence: item?.evidence || '',
+        },
+  );
+}
+
+function normalizeMemories(value) {
+  return normalizeArray(value).map((item) =>
+    typeof item === 'string'
+      ? { memory: item, category: '会议记忆' }
+      : {
+          memory: item?.memory || item?.content || '未提及',
+          category: item?.category || '会议记忆',
+        },
+  );
+}
+
+function normalizeMeetingAnalysis(value, record = {}) {
+  const analysis = normalizeJson(value, {});
+  const minutes = analysis.structured_minutes || analysis.minutes || {};
+  const summary = minutes.summary || analysis.summary || '未提及';
+
+  return {
+    ...analysis,
+    source: analysis.source || 'demo-fallback',
+    provider: analysis.provider || null,
+    warnings: normalizeArray(analysis.warnings),
+    meeting_understanding: analysis.meeting_understanding || {
+      meeting_type: minutes.meeting_type || record.meeting_type || '自动识别',
+      main_topic: minutes.one_sentence_summary || summary,
+      top_themes: [],
+      has_clear_decision: normalizeArray(minutes.decisions).length > 0,
+      has_action_items: normalizeArray(minutes.action_items).length > 0,
+      notes_for_extraction: '已兼容旧版会议记忆结构。',
+    },
+    structured_minutes: {
+      meeting_type: minutes.meeting_type || record.meeting_type || '自动识别',
+      one_sentence_summary: minutes.one_sentence_summary || summary,
+      summary,
+      decisions: normalizeDecisions(minutes.decisions),
+      action_items: normalizeActionItems(minutes.action_items),
+      risks: normalizeArray(minutes.risks),
+      open_questions: normalizeArray(minutes.open_questions),
+      long_term_memory: normalizeMemories(minutes.long_term_memory),
+      keywords: normalizeArray(minutes.keywords),
+    },
+    quality_check: {
+      has_hallucination: Boolean(analysis.quality_check?.has_hallucination),
+      hallucination_items: normalizeArray(analysis.quality_check?.hallucination_items),
+      questionable_decisions: normalizeArray(analysis.quality_check?.questionable_decisions),
+      questionable_action_items: normalizeArray(analysis.quality_check?.questionable_action_items),
+      missing_risks_or_questions: normalizeArray(analysis.quality_check?.missing_risks_or_questions),
+      revision_suggestions: normalizeArray(analysis.quality_check?.revision_suggestions),
+    },
+  };
+}
+
 function recordToMeeting(record) {
   return {
     id: record.id,
@@ -16,8 +97,8 @@ function recordToMeeting(record) {
     meeting_type: record.meeting_type || '自动识别',
     participants: record.participants || '',
     raw_transcript: record.raw_transcript || '',
-    analysis: normalizeJson(record.analysis, null),
-    qa_history: normalizeJson(record.qa_history, []),
+    analysis: normalizeMeetingAnalysis(record.analysis, record),
+    qa_history: normalizeArray(record.qa_history),
     created_at: record.created,
     updated_at: record.updated,
   };

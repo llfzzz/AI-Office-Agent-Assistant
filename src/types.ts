@@ -1,4 +1,4 @@
-export type SourceType = 'gptsapi' | 'demo-fallback';
+export type SourceType = 'default-api' | 'demo-fallback';
 
 export interface MeetingInput {
   title: string;
@@ -156,6 +156,16 @@ export interface TranscriptionResponse {
   text: string;
   model: string;
   provider: HealthResponse['provider'];
+}
+
+export type MeetingAttachmentKind = 'recording' | 'audio' | 'image' | 'file';
+
+export interface FileExtractionResponse {
+  text: string;
+  kind: Extract<MeetingAttachmentKind, 'image' | 'file'>;
+  model: string | null;
+  provider: HealthResponse['provider'] | null;
+  warnings: string[];
 }
 
 export type SkillId = 'meeting_minutes' | 'weekly_report' | 'prd_review';

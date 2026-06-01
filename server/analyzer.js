@@ -9,7 +9,7 @@ import {
   buildUnderstandingMessages,
   buildWeeklyReportMessages,
 } from './prompts.js';
-import { chatJson, getProviderMeta, hasProviderConfig } from './gptsapi.js';
+import { chatJson, getProviderMeta, hasProviderConfig } from './gemini.js';
 import { fallbackAnalysis, fallbackAnswer, fallbackFeedbackSummary, fallbackOfficePlan, fallbackOfficeRun } from './mock.js';
 import { retrieveRagContext } from './rag.js';
 
@@ -99,7 +99,7 @@ export async function analyzeMeeting(input, context, provider = {}) {
     try {
       quality_check = await chatJson(
         buildQualityCheckMessages(input, structured_minutes),
-        { provider, temperature: 0, max_tokens: 700, timeout_ms: 8000 },
+        { provider, temperature: 0, max_tokens: 700, timeout_ms: 45000 },
       );
     } catch (error) {
       warnings.push(`质量自检未完成：${error instanceof Error ? error.message : String(error)}`);
@@ -114,7 +114,7 @@ export async function analyzeMeeting(input, context, provider = {}) {
     }
 
     return {
-      source: 'gptsapi',
+      source: 'default-api',
       provider: getProviderMeta(provider),
       warnings,
       rag: ragContext,
@@ -135,7 +135,7 @@ export async function planOfficeTask(input, context, provider = {}) {
     return {
       source: 'demo-fallback',
       provider: null,
-      warnings: ['未配置 GPTSAPI_KEY，当前 Agent Plan 来自本地演示规划。'],
+      warnings: ['未配置 GEMINI_API_KEY，当前 Agent Plan 来自本地演示规划。'],
       rag: ragContext,
       agent_plan: fallbackOfficePlan(input, ragContext),
     };
@@ -149,7 +149,7 @@ export async function planOfficeTask(input, context, provider = {}) {
     });
 
     return {
-      source: 'gptsapi',
+      source: 'default-api',
       provider: getProviderMeta(provider),
       warnings: [],
       rag: ragContext,
@@ -234,7 +234,7 @@ export async function runOfficeSkill(input, context, provider = {}) {
         provider,
         temperature: 0,
         max_tokens: 800,
-        timeout_ms: 9000,
+        timeout_ms: 45000,
       });
       quality_check = normalizeOfficeQualityCheck(check);
     } catch (error) {
@@ -247,7 +247,7 @@ export async function runOfficeSkill(input, context, provider = {}) {
     }
 
     return {
-      source: 'gptsapi',
+      source: 'default-api',
       provider: getProviderMeta(provider),
       warnings,
       rag: ragContext,
@@ -291,7 +291,7 @@ export async function answerQuestion(meeting, question, provider = {}) {
       answer: answer.answer || '这条会议记录中没有明确提到',
       evidence: answer.evidence || '',
       confidence: answer.confidence || 'medium',
-      source: 'gptsapi',
+      source: 'default-api',
       warnings: [],
     };
   } catch (error) {

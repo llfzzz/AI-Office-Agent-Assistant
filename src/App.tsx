@@ -27,7 +27,6 @@ import {
   Loader2,
   Menu,
   Mic,
-  MicOff,
   MessageSquare,
   Network,
   PanelLeftClose,
@@ -39,7 +38,6 @@ import {
   Sparkles,
   Tags,
   Trash2,
-  Upload,
   UserPlus,
   UserRound,
   Wand2,
@@ -51,6 +49,7 @@ import {
   askMeeting,
   clearStoredToken,
   deleteKnowledgeDocument,
+  extractMeetingFile,
   getHealth,
   getCurrentUser,
   getMeeting,
@@ -70,12 +69,10 @@ import {
 } from './api';
 import './App.css';
 import {
-  DEFAULT_GPTSAPI_BASE_URL,
-  GPTSAPI_CHAT_MODELS,
+  GEMINI_API_BASE_URL,
+  GEMINI_API_MODEL,
   aiProviderIsLocallyConfigured,
-  defaultAiProviderSettings,
   getStoredAiProviderSettings,
-  hasStoredAiProviderSettings,
   normalizeAiProviderSettings,
   storeAiProviderSettings,
   type AiProviderSettings,
@@ -89,6 +86,7 @@ import type {
   HealthResponse,
   KnowledgeDocument,
   LongTermMemory,
+  MeetingAttachmentKind,
   MeetingInput,
   MeetingRecord,
   OpenQuestion,
@@ -131,6 +129,127 @@ type NavGroupDefinition = {
   label: string;
   items: NavItemDefinition[];
 };
+
+type MeetingAttachmentStatus = 'processing' | 'ready' | 'error';
+
+type MeetingAttachment = {
+  id: string;
+  kind: MeetingAttachmentKind;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  extractedText: string;
+  selected: boolean;
+  status: MeetingAttachmentStatus;
+  error?: string;
+  createdAt: string;
+};
+
+const attachmentKindLabels: Record<MeetingAttachmentKind, string> = {
+  recording: '录音',
+  audio: '音频',
+  image: '图片',
+  file: '文件',
+};
+
+const meetingFileAccept = [
+  '.txt',
+  '.text',
+  '.md',
+  '.markdown',
+  '.csv',
+  '.tsv',
+  '.json',
+  '.jsonl',
+  '.log',
+  '.html',
+  '.htm',
+  '.xml',
+  '.yaml',
+  '.yml',
+  '.rtf',
+  '.docx',
+  '.odt',
+  '.pptx',
+  '.xlsx',
+  'text/*',
+  'application/json',
+  'text/csv',
+  'text/tab-separated-values',
+  'application/xml',
+  'application/rtf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+].join(',');
+
+function createAttachmentId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `asset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function randomProtectionToken(size = 6) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  if (typeof crypto !== 'undefined' && 'getRandomValues' in crypto) {
+    const values = new Uint32Array(size);
+    crypto.getRandomValues(values);
+    return Array.from(values, (value) => alphabet[value % alphabet.length]).join('');
+  }
+
+  return Array.from({ length: size }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function compactTimestamp(date = new Date()) {
+  return [
+    date.getFullYear(),
+    padDatePart(date.getMonth() + 1),
+    padDatePart(date.getDate()),
+    '-',
+    padDatePart(date.getHours()),
+    padDatePart(date.getMinutes()),
+    padDatePart(date.getSeconds()),
+  ].join('');
+}
+
+function extensionFromMimeType(mimeType: string) {
+  if (mimeType.includes('webm')) return 'webm';
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3';
+  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('ogg')) return 'ogg';
+  if (mimeType.includes('wav')) return 'wav';
+  if (mimeType.includes('flac')) return 'flac';
+  if (mimeType.includes('m4a')) return 'm4a';
+  return 'webm';
+}
+
+function protectedRecordingFileName(mimeType: string) {
+  return `录音-${compactTimestamp()}-${randomProtectionToken()}.${extensionFromMimeType(mimeType)}`;
+}
+
+function inferUploadKind(file: File): Extract<MeetingAttachmentKind, 'image' | 'file'> {
+  return file.type.startsWith('image/') ? 'image' : 'file';
+}
+
+function buildMeetingTranscript(form: MeetingInput, attachments: MeetingAttachment[]) {
+  const manualText = form.raw_transcript.trim();
+  const attachmentSections = attachments
+    .filter((attachment) => attachment.selected && attachment.status === 'ready' && attachment.extractedText.trim())
+    .map((attachment) => {
+      const label = attachmentKindLabels[attachment.kind];
+      return `【${label}：${attachment.fileName}】\n${attachment.extractedText.trim()}`;
+    });
+
+  return [manualText, ...attachmentSections].filter(Boolean).join('\n\n');
+}
 
 const blankForm: MeetingInput = {
   title: '',
@@ -229,7 +348,6 @@ const navigationGroups: NavGroupDefinition[] = [
     id: 'agent',
     label: 'Skills',
     items: [
-      { view: 'skills', label: 'Skill 工作台', icon: Sparkles },
       { view: 'compose', label: '会议纪要', icon: Mic },
       { view: 'weekly', label: '周报生成', icon: ClipboardList },
       { view: 'prd', label: '需求评审', icon: ShieldCheck },
@@ -270,18 +388,43 @@ function getActiveNavItem(view: View) {
   return navigationGroups.flatMap((group) => group.items).find((item) => item.view === view);
 }
 
+function getNavGroupIdForView(view: View) {
+  return navigationGroups.find((group) => group.items.some((item) => item.view === view))?.id;
+}
+
+function onlyOpenNavGroup(groupId: NavGroupId = 'agent'): Record<NavGroupId, boolean> {
+  return {
+    agent: groupId === 'agent',
+    memory: groupId === 'memory',
+    records: groupId === 'records',
+  };
+}
+
+function isMobileNavViewport() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return (
+    window.matchMedia('(max-width: 760px)').matches ||
+    window.innerWidth <= 760 ||
+    document.documentElement.clientWidth <= 760
+  );
+}
+
 function App() {
   const [activeView, setActiveView] = useState<View>('skills');
-  const [isMobileViewport, setIsMobileViewport] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false,
+  const [isMobileViewport, setIsMobileViewport] = useState(isMobileNavViewport);
+  const [isNavCollapsed, setIsNavCollapsed] = useState(isMobileNavViewport);
+  const [openNavGroups, setOpenNavGroups] = useState<Record<NavGroupId, boolean>>(() =>
+    isMobileNavViewport()
+      ? onlyOpenNavGroup()
+      : initialOpenNavGroups,
   );
-  const [isNavCollapsed, setIsNavCollapsed] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false,
-  );
-  const [openNavGroups, setOpenNavGroups] =
-    useState<Record<NavGroupId, boolean>>(initialOpenNavGroups);
   const [utilityMenuOpen, setUtilityMenuOpen] = useState(false);
   const [form, setForm] = useState<MeetingInput>(blankForm);
+  const [meetingAttachments, setMeetingAttachments] = useState<MeetingAttachment[]>([]);
+  const [lastAnalyzedMeetingInput, setLastAnalyzedMeetingInput] = useState<MeetingInput | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() =>
@@ -330,14 +473,6 @@ function App() {
     getHealth()
       .then((payload) => {
         setHealth(payload);
-
-        if (payload.provider?.model && !hasStoredAiProviderSettings()) {
-          setAiSettings((current) =>
-            current.mode === 'default'
-              ? { ...current, model: payload.provider.model }
-              : current,
-          );
-        }
       })
       .catch(() => {
         setHealth(null);
@@ -362,13 +497,14 @@ function App() {
     const handleViewportChange = (event: MediaQueryListEvent) => {
       setIsMobileViewport(event.matches);
       setIsNavCollapsed(event.matches);
+      setOpenNavGroups(event.matches ? onlyOpenNavGroup(getNavGroupIdForView(activeView)) : initialOpenNavGroups);
     };
 
     mediaQuery.addEventListener('change', handleViewportChange);
     return () => {
       mediaQuery.removeEventListener('change', handleViewportChange);
     };
-  }, []);
+  }, [activeView]);
 
   useEffect(() => {
     if (!utilityMenuOpen) {
@@ -500,18 +636,25 @@ function App() {
     storeAiProviderSettings(normalized);
   }
 
-  function handleNavSelect(view: View) {
+  function showView(view: View) {
     setActiveView(view);
+    if (isMobileViewport || isMobileNavViewport()) {
+      setOpenNavGroups(onlyOpenNavGroup(getNavGroupIdForView(view)));
+    }
+  }
+
+  function handleNavSelect(view: View) {
+    showView(view);
     setUtilityMenuOpen(false);
 
-    if (window.matchMedia('(max-width: 760px)').matches) {
+    if (isMobileViewport || isMobileNavViewport()) {
       setIsNavCollapsed(true);
     }
   }
 
   function toggleNavGroup(groupId: NavGroupId) {
     setOpenNavGroups((current) => ({
-      ...current,
+      ...(isMobileViewport ? onlyOpenNavGroup(groupId) : current),
       [groupId]: !current[groupId],
     }));
   }
@@ -519,22 +662,35 @@ function App() {
   async function handleAnalyze() {
     setError('');
     if (activeView === 'home') {
-      setActiveView('compose');
+      showView('compose');
     }
 
-    if (!form.raw_transcript.trim()) {
-      setError('请先录音、上传音频或输入会议文本。');
+    const hasProcessingSelectedAttachment = meetingAttachments.some(
+      (attachment) => attachment.selected && attachment.status === 'processing',
+    );
+    const transcriptForAnalysis = buildMeetingTranscript(form, meetingAttachments);
+
+    if (hasProcessingSelectedAttachment) {
+      setError('会议附件还在后台提取或转写，请完成后再生成纪要。');
+      return;
+    }
+
+    if (!transcriptForAnalysis.trim()) {
+      setError('请先输入会议文本，或上传/录音生成可分析的会议内容。');
       return;
     }
 
     setIsAnalyzing(true);
     try {
-      const result = await analyzeMeeting({
+      const analysisInput = {
         ...form,
+        raw_transcript: transcriptForAnalysis,
         rag: { enabled: ragEnabled && knowledgeDocuments.length > 0 },
-      });
+      };
+      const result = await analyzeMeeting(analysisInput);
+      setLastAnalyzedMeetingInput(analysisInput);
       setAnalysis(result);
-      setActiveView('compose');
+      showView('compose');
     } catch (err) {
       setError(err instanceof Error ? err.message : '分析失败');
     } finally {
@@ -542,22 +698,127 @@ function App() {
     }
   }
 
-  async function handleTranscribe(file: Blob, fileName?: string) {
+  async function handleTranscribe(file: Blob, fileName?: string, kind: Extract<MeetingAttachmentKind, 'recording' | 'audio'> = 'audio') {
     setError('');
-    setActiveView('compose');
+    showView('compose');
     setIsTranscribing(true);
+    const attachmentId = createAttachmentId();
+    const attachmentName =
+      fileName || (kind === 'recording' ? protectedRecordingFileName(file.type || 'audio/webm') : 'meeting-audio.webm');
+
+    setMeetingAttachments((current) => [
+      ...current,
+      {
+        id: attachmentId,
+        kind,
+        fileName: attachmentName,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size || 0,
+        extractedText: '',
+        selected: true,
+        status: 'processing',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
 
     try {
-      const result = await transcribeAudio(file, { fileName });
-      setForm((current) => ({
-        ...current,
-        raw_transcript: [current.raw_transcript.trim(), result.text.trim()].filter(Boolean).join('\n\n'),
-      }));
+      const result = await transcribeAudio(file, { fileName: attachmentName });
+      const extractedText = result.text.trim();
+      setMeetingAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === attachmentId
+            ? {
+                ...attachment,
+                extractedText,
+                status: extractedText ? 'ready' : 'error',
+                error: extractedText ? undefined : '转写结果为空',
+              }
+            : attachment,
+        ),
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : '转写失败');
+      const message = err instanceof Error ? err.message : '转写失败';
+      setError(message);
+      setMeetingAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === attachmentId
+            ? {
+                ...attachment,
+                status: 'error',
+                error: message,
+              }
+            : attachment,
+        ),
+      );
     } finally {
       setIsTranscribing(false);
     }
+  }
+
+  async function handleExtractAttachment(file: File) {
+    setError('');
+    showView('compose');
+    const attachmentId = createAttachmentId();
+    const kind = inferUploadKind(file);
+
+    setMeetingAttachments((current) => [
+      ...current,
+      {
+        id: attachmentId,
+        kind,
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        extractedText: '',
+        selected: true,
+        status: 'processing',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    try {
+      const result = await extractMeetingFile(file, { fileName: file.name });
+      const extractedText = result.text.trim();
+      const warning = result.warnings[0];
+      setMeetingAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === attachmentId
+            ? {
+                ...attachment,
+                extractedText,
+                status: extractedText ? 'ready' : 'error',
+                error: extractedText ? warning : warning || '没有提取到可用于会议纪要的内容',
+              }
+            : attachment,
+        ),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '文件提取失败';
+      setError(message);
+      setMeetingAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === attachmentId
+            ? {
+                ...attachment,
+                status: 'error',
+                error: message,
+              }
+            : attachment,
+        ),
+      );
+    }
+  }
+
+  function handleToggleMeetingAttachment(id: string) {
+    setMeetingAttachments((current) =>
+      current.map((attachment) =>
+        attachment.id === id ? { ...attachment, selected: !attachment.selected } : attachment,
+      ),
+    );
+  }
+
+  function handleDeleteMeetingAttachment(id: string) {
+    setMeetingAttachments((current) => current.filter((attachment) => attachment.id !== id));
   }
 
   async function handleSaveKnowledge() {
@@ -632,13 +893,13 @@ function App() {
     setError('');
     setIsSaving(true);
     try {
-      const payload = await saveMeeting(form, analysis);
+      const payload = await saveMeeting(lastAnalyzedMeetingInput || form, analysis);
       setMeetings((current) => [
         payload.meeting,
         ...current.filter((meeting) => meeting.id !== payload.meeting.id),
       ]);
       setSelectedMeetingId(payload.meeting.id);
-      setActiveView('detail');
+      showView('detail');
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
     } finally {
@@ -683,7 +944,7 @@ function App() {
         ...current.filter((output) => output.id !== payload.output.id),
       ]);
       setSelectedOfficeOutputId(payload.output.id);
-      setActiveView('outputs');
+      showView('outputs');
     } catch (err) {
       setError(err instanceof Error ? `${err.message}。如果是首次升级，请先运行 npm run pb:migrate。` : '保存办公输出失败');
     } finally {
@@ -712,7 +973,7 @@ function App() {
 
   function selectMeeting(id: string) {
     setSelectedMeetingId(id);
-    setActiveView('detail');
+    showView('detail');
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -727,7 +988,7 @@ function App() {
           : await registerUser(authForm);
       storeToken(payload.token);
       setSession(payload);
-      setActiveView('skills');
+      showView('skills');
       setAuthForm({ email: '', password: '', name: '' });
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败');
@@ -750,9 +1011,11 @@ function App() {
     setSelectedMeetingId('');
     setSelectedOfficeOutputId('');
     setAnalysis(null);
+    setMeetingAttachments([]);
+    setLastAnalyzedMeetingInput(null);
     setOfficeResult(null);
     setLastOfficeInput(null);
-    setActiveView('home');
+    showView('home');
   }
 
   async function handleSubmitOfficeFeedback() {
@@ -764,7 +1027,7 @@ function App() {
       const payload = await submitOfficeFeedback(selectedOfficeOutput.id, feedbackForm);
       setOfficeFeedback((current) => [payload.feedback, ...current]);
       setFeedbackForm(blankFeedbackForm);
-      setActiveView('feedback');
+      showView('feedback');
     } catch (err) {
       setError(err instanceof Error ? `${err.message}。如果是首次升级，请先运行 npm run pb:migrate。` : '提交反馈失败');
     } finally {
@@ -868,7 +1131,7 @@ function App() {
                     {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                     <span>{group.label}</span>
                   </button>
-                  <div className="nav-group-items" hidden={!isOpen && !isNavCollapsed}>
+                  <div className="nav-group-items" hidden={!isNavCollapsed && !isOpen}>
                     {group.items.map((item) => {
                       const Icon = item.icon;
                       const disabled = item.disabled?.({ selectedMeeting }) || false;
@@ -877,7 +1140,8 @@ function App() {
                         <button
                           key={item.view}
                           type="button"
-                          title={item.label}
+                          aria-label={item.label}
+                          data-tooltip={item.label}
                           className={activeView === item.view ? 'nav-item active' : 'nav-item'}
                           onClick={() => handleNavSelect(item.view)}
                           disabled={disabled}
@@ -904,8 +1168,8 @@ function App() {
       <main className={activeView === 'home' ? 'workspace home-workspace' : 'workspace'}>
         {activeView === 'home' && (
           <HomeView
-            onStart={() => setActiveView('compose')}
-            onLibrary={() => setActiveView('library')}
+            onStart={() => showView('compose')}
+            onLibrary={() => showView('library')}
           />
         )}
 
@@ -914,7 +1178,7 @@ function App() {
             meetingCount={stats.meetings}
             outputCount={stats.outputs}
             feedbackCount={stats.feedback}
-            onOpenView={setActiveView}
+            onOpenView={showView}
           />
         )}
 
@@ -928,12 +1192,16 @@ function App() {
         {activeView === 'compose' && (
           <ComposeView
             form={form}
+            attachments={meetingAttachments}
             analysis={analysis}
             isAnalyzing={isAnalyzing}
             isSaving={isSaving}
             isTranscribing={isTranscribing}
             onFormChange={setForm}
             onTranscribe={handleTranscribe}
+            onExtractAttachment={handleExtractAttachment}
+            onToggleAttachment={handleToggleMeetingAttachment}
+            onDeleteAttachment={handleDeleteMeetingAttachment}
             onError={setError}
             onAnalyze={handleAnalyze}
             onSave={handleSave}
@@ -992,7 +1260,7 @@ function App() {
             isAsking={isAsking}
             onQuestion={setQuestion}
             onAsk={handleAsk}
-            onOpenLibrary={() => setActiveView('library')}
+            onOpenLibrary={() => showView('library')}
           />
         )}
 
@@ -1033,7 +1301,7 @@ function App() {
             feedback={officeFeedback}
             outputs={officeOutputs}
             loading={officeListLoading}
-            onOpenOutputs={() => setActiveView('outputs')}
+            onOpenOutputs={() => showView('outputs')}
           />
         )}
 
@@ -1490,70 +1758,20 @@ function PrdReviewView({
   );
 }
 
-function AgentPlanPanel({ result }: { result: OfficeRunResult }) {
-  const plan = result.agent_plan;
-
-  return (
-    <section className="agent-plan-card">
-      <div className="plan-header">
-        <Bot size={18} />
-        <div>
-          <span className="eyebrow">Agent Plan</span>
-          <h3>{plan.user_goal}</h3>
-        </div>
-        <span className="status ready">{skillName(plan.selected_skill)}</span>
-      </div>
-      <div className="plan-grid">
-        <PlanList title="需要输入" items={plan.required_inputs} />
-        <PlanList title="信息缺口" items={plan.missing_information.length ? plan.missing_information : ['暂无明显缺口']} />
-        <PlanList title="执行步骤" items={plan.execution_steps} />
-        <PlanList title="输出物" items={plan.expected_outputs} />
-      </div>
-      {plan.risk_notes.length > 0 && (
-        <div className="plan-risk">
-          <AlertTriangle size={16} />
-          <span>{plan.risk_notes[0]}</span>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function PlanList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="plan-list">
-      <strong>{title}</strong>
-      <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function OfficeResultPanel({ result, emptyTitle }: { result: OfficeRunResult | null; emptyTitle: string }) {
   if (!result) {
     return (
       <div className="panel result-panel empty-result">
         <Bot size={28} />
         <h2>{emptyTitle}</h2>
-        <p>Agent Plan、Skill 输出、质量自检和保存入口会显示在这里。</p>
+        <p>生成后的周报或评审材料会显示在这里。</p>
       </div>
     );
   }
 
   return (
     <div className="office-result-stack">
-      <AgentPlanPanel result={result} />
-      {result.warnings.length > 0 && (
-        <div className="notice warning">
-          <AlertTriangle size={17} />
-          {result.warnings[0]}
-        </div>
-      )}
       <OfficeOutputPreview output={result.skill_output} skillId={result.agent_plan.selected_skill} />
-      <QualityPanel quality={result.quality_check} />
     </div>
   );
 }
@@ -1648,22 +1866,6 @@ function SimpleListBlock({
           ))}
         </ul>
       )}
-    </section>
-  );
-}
-
-function QualityPanel({ quality }: { quality: OfficeRunResult['quality_check'] }) {
-  return (
-    <section className="quality-card">
-      <div>
-        <ShieldCheck size={18} />
-        <strong>质量自检</strong>
-      </div>
-      <span className={quality.has_hallucination ? 'status fallback' : 'status ready'}>
-        {quality.has_hallucination ? '存在疑点' : '未发现明显幻觉'}
-      </span>
-      <p>可复制评分：{quality.copy_ready_score || '未评分'} / 5</p>
-      {quality.revision_suggestions.length > 0 && <p>{quality.revision_suggestions[0]}</p>}
     </section>
   );
 }
@@ -1970,27 +2172,37 @@ function RagView(props: {
 
 function ComposeView({
   form,
+  attachments,
   analysis,
   isAnalyzing,
   isSaving,
   isTranscribing,
   onFormChange,
   onTranscribe,
+  onExtractAttachment,
+  onToggleAttachment,
+  onDeleteAttachment,
   onError,
   onAnalyze,
   onSave,
 }: {
   form: MeetingInput;
+  attachments: MeetingAttachment[];
   analysis: AnalysisResult | null;
   isAnalyzing: boolean;
   isSaving: boolean;
   isTranscribing: boolean;
   onFormChange: (form: MeetingInput) => void;
-  onTranscribe: (file: Blob, fileName?: string) => void;
+  onTranscribe: (file: Blob, fileName?: string, kind?: Extract<MeetingAttachmentKind, 'recording' | 'audio'>) => void;
+  onExtractAttachment: (file: File) => void;
+  onToggleAttachment: (id: string) => void;
+  onDeleteAttachment: (id: string) => void;
   onError: (message: string) => void;
   onAnalyze: () => void;
   onSave: () => void;
 }) {
+  const analyzableTextLength = buildMeetingTranscript(form, attachments).trim().length;
+
   return (
     <section className="two-column">
       <div className="panel compose-panel">
@@ -2049,23 +2261,33 @@ function ComposeView({
               <span className="eyebrow">转写部分</span>
               <h3>语音与文本集合</h3>
             </div>
-            <span>{form.raw_transcript.trim() ? `${form.raw_transcript.trim().length} 字` : '未输入文本'}</span>
+            <span>{analyzableTextLength ? `${analyzableTextLength} 字可分析` : '未输入内容'}</span>
           </div>
 
-          <AudioTranscriptionPanel
-            isTranscribing={isTranscribing}
-            onTranscribe={onTranscribe}
-            onError={onError}
-          />
-
-          <label className="transcript-field">
-            原始会议文本
-            <textarea
-              value={form.raw_transcript}
-              onChange={(event) => onFormChange({ ...form, raw_transcript: event.target.value })}
-              placeholder="粘贴会议转写内容，或先录音/上传音频后自动追加到这里。"
+          <div className="transcript-field">
+            <label className="field-label" htmlFor="meeting-raw-transcript">
+              原始会议文本
+            </label>
+            <div className="transcript-input-wrap">
+              <textarea
+                id="meeting-raw-transcript"
+                value={form.raw_transcript}
+                onChange={(event) => onFormChange({ ...form, raw_transcript: event.target.value })}
+                placeholder="粘贴或输入会议文本"
+              />
+              <MeetingContentToolbar
+                isTranscribing={isTranscribing}
+                onTranscribe={onTranscribe}
+                onExtractAttachment={onExtractAttachment}
+                onError={onError}
+              />
+            </div>
+            <MeetingAttachmentList
+              attachments={attachments}
+              onToggleAttachment={onToggleAttachment}
+              onDeleteAttachment={onDeleteAttachment}
             />
-          </label>
+          </div>
         </div>
 
         <div className="button-row">
@@ -2087,13 +2309,15 @@ function ComposeView({
   );
 }
 
-function AudioTranscriptionPanel({
+function MeetingContentToolbar({
   isTranscribing,
   onTranscribe,
+  onExtractAttachment,
   onError,
 }: {
   isTranscribing: boolean;
-  onTranscribe: (file: Blob, fileName?: string) => void;
+  onTranscribe: (file: Blob, fileName?: string, kind?: Extract<MeetingAttachmentKind, 'recording' | 'audio'>) => void;
+  onExtractAttachment: (file: File) => void;
   onError: (message: string) => void;
 }) {
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -2133,7 +2357,7 @@ function AudioTranscriptionPanel({
       const blob = new Blob(chunksRef.current, { type: preferredType });
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      onTranscribe(blob, 'browser-recording.webm');
+      onTranscribe(blob, protectedRecordingFileName(preferredType), 'recording');
     };
     recorder.start();
     setIsRecording(true);
@@ -2146,45 +2370,175 @@ function AudioTranscriptionPanel({
   }
 
   return (
-    <div className="audio-panel">
-      <div>
-        <span className="eyebrow">语音转写</span>
-        <p>录音或上传音频，文件只经由后端转发到转写 API。</p>
-      </div>
-      <div className="audio-actions">
-        <button
-          type="button"
-          className={isRecording ? 'button danger' : 'button secondary'}
-          onClick={isRecording ? stopRecording : startRecording}
+    <div className="attachment-toolbar" aria-label="会议内容附件操作">
+      <button
+        type="button"
+        className={isRecording ? 'attachment-tool-button active' : 'attachment-tool-button'}
+        onClick={isRecording ? stopRecording : startRecording}
+        disabled={isTranscribing}
+        aria-label={isRecording ? '停止录音' : '开始录音'}
+        title={isRecording ? '停止录音' : '开始录音'}
+      >
+        <MeetingAssetIcon kind="recording" />
+      </button>
+      <label
+        className={isTranscribing ? 'attachment-tool-button attachment-tool-label disabled' : 'attachment-tool-button attachment-tool-label'}
+        aria-label="上传音频"
+        title="上传音频"
+      >
+        <MeetingAssetIcon kind="audio" />
+        <input
+          type="file"
+          accept="audio/*,video/mp4,video/webm"
           disabled={isTranscribing}
-        >
-          {isRecording ? <MicOff size={17} /> : <Mic size={17} />}
-          {isRecording ? '停止并转写' : '开始录音'}
-        </button>
-        <label className="button secondary upload-button">
-          <Upload size={17} />
-          上传音频
-          <input
-            type="file"
-            accept="audio/*,video/mp4,video/webm"
-            disabled={isTranscribing}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                onTranscribe(file, file.name);
-                event.target.value = '';
-              }
-            }}
-          />
-        </label>
-        {isTranscribing && (
-          <span className="inline-status">
-            <Loader2 className="spin" size={16} />
-            正在转写
-          </span>
-        )}
-      </div>
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onTranscribe(file, file.name, 'audio');
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+      <label className="attachment-tool-button attachment-tool-label" aria-label="上传图片" title="上传图片">
+        <MeetingAssetIcon kind="image" />
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onExtractAttachment(file);
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+      <label className="attachment-tool-button attachment-tool-label" aria-label="上传文件" title="上传文件">
+        <MeetingAssetIcon kind="file" />
+        <input
+          type="file"
+          accept={meetingFileAccept}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onExtractAttachment(file);
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+      {isTranscribing && (
+        <span className="attachment-tool-status" aria-label="正在转写">
+          <Loader2 className="spin" size={15} />
+        </span>
+      )}
     </div>
+  );
+}
+
+function MeetingAttachmentList({
+  attachments,
+  onToggleAttachment,
+  onDeleteAttachment,
+}: {
+  attachments: MeetingAttachment[];
+  onToggleAttachment: (id: string) => void;
+  onDeleteAttachment: (id: string) => void;
+}) {
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="meeting-attachment-list" aria-label="会议内容附件">
+      {attachments.map((attachment) => (
+        <div
+          className={[
+            'meeting-attachment-item',
+            attachment.selected ? 'selected' : '',
+            attachment.status,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          key={attachment.id}
+        >
+          <button
+            type="button"
+            className="meeting-attachment-select"
+            onClick={() => onToggleAttachment(attachment.id)}
+            aria-pressed={attachment.selected}
+            title={attachment.selected ? '已选择，点击取消' : '未选择，点击选择'}
+          >
+            <MeetingAssetIcon kind={attachment.kind} />
+            <span className="meeting-attachment-copy">
+              <strong>{attachment.fileName}</strong>
+              <span>{attachmentMeta(attachment)}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="meeting-attachment-delete"
+            onClick={() => onDeleteAttachment(attachment.id)}
+            aria-label={`删除 ${attachment.fileName}`}
+            title="删除"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function attachmentMeta(attachment: MeetingAttachment) {
+  if (attachment.status === 'processing') {
+    return attachment.kind === 'recording' || attachment.kind === 'audio' ? '转写中' : '提取中';
+  }
+
+  if (attachment.status === 'error') {
+    return attachment.error || '处理失败';
+  }
+
+  return `${attachmentKindLabels[attachment.kind]} · ${attachment.extractedText.trim().length} 字`;
+}
+
+function MeetingAssetIcon({ kind }: { kind: MeetingAttachmentKind }) {
+  return (
+    <svg className="meeting-asset-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {kind === 'recording' && (
+        <>
+          <rect x="8.5" y="3" width="7" height="12" rx="3.5" />
+          <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+          <path d="M12 18v3" />
+          <path d="M8.5 21h7" />
+          <path d="M10.5 7h3" />
+        </>
+      )}
+      {kind === 'audio' && (
+        <>
+          <path d="M6.5 4.5h7l4 4v11h-11z" />
+          <path d="M13.5 4.5v4h4" />
+          <path d="M8.8 14.5h1.4l1-3 1.6 5 1.1-3.2h1.3" />
+        </>
+      )}
+      {kind === 'image' && (
+        <>
+          <rect x="4.5" y="5" width="15" height="14" rx="2" />
+          <circle cx="9" cy="9.5" r="1.25" />
+          <path d="M6.8 16.8 10.3 13l2.4 2.2 2.2-2.7 2.4 4.3" />
+        </>
+      )}
+      {kind === 'file' && (
+        <>
+          <path d="M6.5 4.5h7.2l3.8 3.8v11.2h-11z" />
+          <path d="M13.5 4.8v3.9h3.8" />
+          <path d="M9 12h6" />
+          <path d="M9 15h6" />
+          <path d="M9 18h4" />
+        </>
+      )}
+    </svg>
   );
 }
 
@@ -2726,7 +3080,7 @@ function UtilityMenu({
   const displayModel =
     settings.mode === 'custom'
       ? settings.model.trim() || '自定义模型'
-      : settings.model || health?.provider.model || defaultAiProviderSettings.model;
+      : GEMINI_API_MODEL;
 
   return (
     <div className="utility-menu" ref={refEl}>
@@ -2799,10 +3153,7 @@ function AiSettingsModal({
   const displayModel =
     settings.mode === 'custom'
       ? settings.model.trim() || '自定义模型'
-      : settings.model || health?.provider.model || defaultAiProviderSettings.model;
-  const defaultModelOptions = GPTSAPI_CHAT_MODELS.includes(settings.model)
-    ? GPTSAPI_CHAT_MODELS
-    : [settings.model, ...GPTSAPI_CHAT_MODELS].filter(Boolean);
+      : GEMINI_API_MODEL;
 
   function update(patch: Partial<AiProviderSettings>) {
     onSettingsChange({ ...settings, ...patch });
@@ -2861,13 +3212,13 @@ function AiSettingsModal({
               onClick={() =>
                 update({
                   mode: 'default',
-                  baseUrl: DEFAULT_GPTSAPI_BASE_URL,
+                  baseUrl: GEMINI_API_BASE_URL,
                   apiKey: '',
-                  model: settings.model || defaultAiProviderSettings.model,
+                  model: GEMINI_API_MODEL,
                 })
               }
             >
-              默认 GPTSAPI
+              默认 Gemini
             </button>
             <button
               type="button"
@@ -2885,27 +3236,7 @@ function AiSettingsModal({
             </button>
           </div>
 
-          {settings.mode === 'default' ? (
-            <>
-              <label>
-                默认网络
-                <input value={DEFAULT_GPTSAPI_BASE_URL} disabled readOnly />
-              </label>
-              <label>
-                模型
-                <select
-                  value={settings.model}
-                  onChange={(event) => update({ model: event.target.value })}
-                >
-                  {defaultModelOptions.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          ) : (
+          {settings.mode === 'custom' && (
             <>
               <label>
                 API Base URL

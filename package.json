@@ -12,16 +12,20 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "verify:gemini": "node scripts/verify-gemini-e2e.mjs",
+    "verify:memory": "node scripts/verify-memory-save.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ffmpeg-static": "^5.3.0",
     "jsonrepair": "^3.14.0",
     "lucide-react": "^1.14.0",
     "pocketbase": "^0.26.9",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "undici": "^7.26.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

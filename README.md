@@ -22,34 +22,44 @@
 - React + TypeScript + Vite
 - Express API server
 - PocketBase：本地数据库、用户认证、会议记忆和 RAG 资料库
-- GPTSAPI OpenAI-compatible API
+- Google Gemini API
 - `awesome-design-md` Notion 风格设计参考
 
 ## API 配置
 
-本项目按 https://api2.gptsapi.net/tutorial 的 OpenAI-compatible 调用方式实现：
+本项目默认按 Google Gemini API `generateContent` 调用方式实现，参考：
 
-- Base URL：`https://api.gptsapi.net/v1`
-- Endpoint：`/chat/completions`
-- Header：`Authorization: Bearer <GPTSAPI_KEY>`
-- 请求体包含 `model`、`messages`、`temperature`、`response_format`
+- Quickstart：`https://ai.google.dev/gemini-api/docs/quickstart?hl=zh-cn`
+- Base URL：`https://generativelanguage.googleapis.com/v1beta`
+- Endpoint：`/models/{model}:generateContent`
+- Model：`gemini-3-flash-preview`（Google 文档中 Gemini 3 Flash 当前 REST 模型 ID）
+- Header：`X-goog-api-key: <GEMINI_API_KEY>`
+- 请求体包含 `contents`、`parts` 和 `generationConfig`
 
-复制 `.env.example` 为 `.env`，填入 key：
+复制 `.env.example` 为 `.env`，填入 Gemini key。仓库示例文件中 key 保持留空：
 
 ```bash
 cp .env.example .env
 ```
 
 ```env
-PORT=8787
+PORT=8788
 PB_URL=http://127.0.0.1:8090
-GPTSAPI_KEY=你的_key
-GPTSAPI_BASE_URL=https://api.gptsapi.net/v1
-GPTSAPI_MODEL=claude-opus-4-7
-GPTSAPI_MAX_TOKENS=2000
+JSON_BODY_LIMIT=10mb
+GEMINI_API_KEY=
+GEMINI_HTTPS_PROXY=
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+GEMINI_UPLOAD_BASE_URL=https://generativelanguage.googleapis.com/upload/v1beta
+GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_MAX_OUTPUT_TOKENS=2000
+GEMINI_THINKING_LEVEL=low
+GEMINI_TIMEOUT_MS=90000
+GEMINI_RETRY_ATTEMPTS=4
 ```
 
-未配置 `GPTSAPI_KEY` 时，服务端会降级为本地演示解析，前端会标记为“演示模式”。
+未配置 `GEMINI_API_KEY` 时，服务端会降级为本地演示解析，前端会标记为“演示模式”。录音转写和图片提取也使用同一个 Gemini key；浏览器产生的 WebM 录音会通过 `ffmpeg-static` 转成 Gemini 支持的 FLAC 音频。纯文本、Markdown、CSV、JSON、HTML、XML、RTF、DOCX、ODT、PPTX 和 XLSX 会在服务端本地提取文本。
+
+如果服务器访问 Google API 必须经过代理，可设置 `GEMINI_HTTPS_PROXY`，例如 `http://127.0.0.1:7890`。该代理只用于 Gemini API 请求。
 
 ## 运行
 
@@ -76,8 +86,8 @@ npm run dev
 
 默认地址：
 
-- 前端：`http://localhost:5173`
-- API：`http://localhost:8787`
+- 前端：`http://localhost:5173/office-agent/`
+- API：`http://localhost:8788`
 - PocketBase：`http://127.0.0.1:8090`
 
 首次进入前端需要注册或登录账号。所有会议、追问和 RAG 文档都会通过 PocketBase token 绑定到当前用户。
@@ -103,7 +113,7 @@ npm start
 
 - `server/prompts.js`
 - `server/analyzer.js`
-- `server/gptsapi.js`
+- `server/gemini.js`
 - `server/storage.js`
 - `server/pocketbase.js`
 - `pb_migrations/*`
