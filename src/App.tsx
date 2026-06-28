@@ -41,7 +41,6 @@ import {
   UserPlus,
   UserRound,
   Wand2,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -68,6 +67,9 @@ import {
   transcribeAudio,
 } from './api';
 import './App.css';
+import { Alert, Badge, Button, Card, Input, Modal, SegmentedControl, Select, Spinner, Switch, Tag, Textarea } from './freejoy';
+import { ScorePicker, SemanticPanel } from './ui';
+// Note: keep these import lists in sync with actual usage (noUnusedLocals is on).
 import {
   GEMINI_API_BASE_URL,
   GEMINI_API_MODEL,
@@ -638,6 +640,12 @@ function App() {
 
   function showView(view: View) {
     setActiveView(view);
+    // Show the list loading state while the outputs/feedback effect fetches.
+    // (Set here in the handler rather than inside the effect, which would trip
+    // react-hooks/set-state-in-effect.)
+    if (view === 'outputs' || view === 'feedback') {
+      setOfficeListLoading(true);
+    }
     if (isMobileViewport || isMobileNavViewport()) {
       setOpenNavGroups(onlyOpenNavGroup(getNavGroupIdForView(view)));
     }
@@ -1038,8 +1046,7 @@ function App() {
   if (isRestoringSession) {
     return (
       <div className="auth-screen">
-        <Loader2 className="spin" size={26} />
-        <span>正在连接数据库账号</span>
+        <Spinner size={26} label="正在连接数据库账号" />
       </div>
     );
   }
@@ -1183,10 +1190,9 @@ function App() {
         )}
 
         {error && (
-          <div className="notice error" role="alert">
-            <AlertTriangle size={18} />
+          <Alert tone="danger" icon={<AlertTriangle size={18} />} style={{ marginBottom: 4 }}>
             {error}
-          </div>
+          </Alert>
         )}
 
         {activeView === 'compose' && (
@@ -1360,59 +1366,59 @@ function AuthView({
           </div>
         </div>
 
-        <div className="auth-tabs">
-          <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => onMode('login')}>
-            登录
-          </button>
-          <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => onMode('register')}>
-            注册
-          </button>
-        </div>
+        <SegmentedControl
+          full
+          value={mode}
+          onChange={(value) => onMode(value as AuthMode)}
+          options={[
+            { value: 'login', label: '登录' },
+            { value: 'register', label: '注册' },
+          ]}
+          style={{ marginBottom: 4 }}
+        />
 
         {mode === 'register' && (
-          <label>
-            昵称
-            <input
-              value={form.name}
-              onChange={(event) => onForm({ ...form, name: event.target.value })}
-              placeholder="用于侧边栏显示"
-            />
-          </label>
+          <Input
+            label="昵称"
+            value={form.name}
+            onChange={(event) => onForm({ ...form, name: event.target.value })}
+            placeholder="用于侧边栏显示"
+          />
         )}
-        <label>
-          邮箱
-          <input
-            type="text"
-            inputMode="email"
-            value={form.email}
-            onChange={(event) => onForm({ ...form, email: event.target.value })}
-            placeholder="you@example.com"
-            required
-          />
-        </label>
-        <label>
-          密码
-          <input
-            type="password"
-            value={form.password}
-            onChange={(event) => onForm({ ...form, password: event.target.value })}
-            placeholder="至少 8 位"
-            minLength={8}
-            required
-          />
-        </label>
+        <Input
+          label="邮箱"
+          type="text"
+          inputMode="email"
+          value={form.email}
+          onChange={(event) => onForm({ ...form, email: event.target.value })}
+          placeholder="you@example.com"
+          required
+        />
+        <Input
+          label="密码"
+          type="password"
+          value={form.password}
+          onChange={(event) => onForm({ ...form, password: event.target.value })}
+          placeholder="至少 8 位"
+          minLength={8}
+          required
+        />
 
         {error && (
-          <div className="notice error" role="alert">
-            <AlertTriangle size={18} />
+          <Alert tone="danger" icon={<AlertTriangle size={18} />}>
             {error}
-          </div>
+          </Alert>
         )}
 
-        <button type="submit" className="button primary auth-submit" disabled={isLoading}>
-          {isLoading ? <Loader2 className="spin" size={17} /> : mode === 'login' ? <UserRound size={17} /> : <UserPlus size={17} />}
+        <Button
+          type="submit"
+          full
+          size="lg"
+          disabled={isLoading}
+          iconLeft={isLoading ? <Loader2 className="spin" size={17} /> : mode === 'login' ? <UserRound size={17} /> : <UserPlus size={17} />}
+        >
           {mode === 'login' ? '登录并连接' : '注册并进入'}
-        </button>
+        </Button>
       </form>
     </main>
   );
@@ -1424,14 +1430,12 @@ function HomeView({ onStart, onLibrary }: { onStart: () => void; onLibrary: () =
       <div className="hero-copy">
         <h1>AI 办公智能体助手</h1>
         <div className="hero-actions">
-          <button type="button" className="button primary" onClick={onStart}>
-            <Wand2 size={17} />
+          <Button size="lg" onClick={onStart} iconLeft={<Wand2 size={17} />}>
             进入会议纪要
-          </button>
-          <button type="button" className="button on-dark" onClick={onLibrary}>
-            <Library size={17} />
+          </Button>
+          <Button size="lg" variant="secondary" onClick={onLibrary} iconLeft={<Library size={17} />}>
             打开会议记忆库
-          </button>
+          </Button>
         </div>
       </div>
       <MemoryMap />
@@ -1467,7 +1471,12 @@ function SkillWorkbenchView({
 
       <div className="skill-grid">
         {skillCards.map((skill) => (
-          <article className={`skill-card ${skill.tone}`} key={skill.id}>
+          <Card
+            interactive
+            key={skill.id}
+            className={`skill-card ${skill.tone}`}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
             <div className="skill-card-top">
               <span className="skill-icon">
                 {skill.id === 'meeting_minutes' && <Mic size={20} />}
@@ -1478,6 +1487,9 @@ function SkillWorkbenchView({
                 <h2>{skill.title}</h2>
                 <p>{skill.scene}</p>
               </div>
+              <Badge tone={skill.tone === 'meeting' ? 'accent' : skill.tone === 'weekly' ? 'success' : 'bloom'}>
+                Skill
+              </Badge>
             </div>
             <dl className="skill-meta">
               <div>
@@ -1497,11 +1509,16 @@ function SkillWorkbenchView({
                 <dd>{skill.risk}</dd>
               </div>
             </dl>
-            <button type="button" className="button secondary" onClick={() => onOpenView(skill.view)}>
+            <Button
+              variant="secondary"
+              full
+              iconRight={<ArrowRight size={17} />}
+              onClick={() => onOpenView(skill.view)}
+              style={{ marginTop: 'auto' }}
+            >
               进入 Skill
-              <ArrowRight size={17} />
-            </button>
-          </article>
+            </Button>
+          </Card>
         ))}
       </div>
 
@@ -1513,8 +1530,10 @@ function SkillWorkbenchView({
           </div>
         </div>
         <div className="flow-steps">
-          {['目标理解', 'Skill 选择', '资料检索', '结构化生成', '质量自检', '结果保存', '反馈迭代'].map((step) => (
-            <span key={step}>{step}</span>
+          {['目标理解', 'Skill 选择', '资料检索', '结构化生成', '质量自检', '结果保存', '反馈迭代'].map((step, index) => (
+            <Tag key={step} accent={index % 2 === 0 ? 'coral' : 'bloom'} dot>
+              {step}
+            </Tag>
           ))}
         </div>
       </div>
@@ -1567,41 +1586,38 @@ function WeeklyReportView({
             <span className="eyebrow">周报生成 Skill</span>
             <h2>把工作记录整理成可复制周报</h2>
           </div>
-          <span className={canUseRag ? 'status ready' : 'status fallback'}>{canUseRag ? 'RAG 可用' : 'RAG 关闭'}</span>
+          <Badge tone={canUseRag ? 'success' : 'neutral'}>{canUseRag ? 'RAG 可用' : 'RAG 关闭'}</Badge>
         </div>
 
         <div className="form-grid">
-          <label>
-            周报标题
-            <input value={task.title} onChange={(event) => onTask({ ...task, title: event.target.value })} />
-          </label>
-          <label>
-            周期
-            <input
-              value={metadata.period || ''}
-              onChange={(event) => updateMetadata('period', event.target.value)}
-              placeholder="例如：2026.05.04 - 2026.05.10"
-            />
-          </label>
+          <Input
+            label="周报标题"
+            value={task.title}
+            onChange={(event) => onTask({ ...task, title: event.target.value })}
+          />
+          <Input
+            label="周期"
+            value={metadata.period || ''}
+            onChange={(event) => updateMetadata('period', event.target.value)}
+            placeholder="例如：2026.05.04 - 2026.05.10"
+          />
         </div>
 
-        <label className="office-textarea">
-          工作记录
-          <textarea
-            value={task.content}
-            onChange={(event) => onTask({ ...task, content: event.target.value })}
-            placeholder="粘贴本周完成事项、推进进展、阻塞风险、协作信息。"
-          />
-        </label>
+        <Textarea
+          label="工作记录"
+          rows={6}
+          value={task.content}
+          onChange={(event) => onTask({ ...task, content: event.target.value })}
+          placeholder="粘贴本周完成事项、推进进展、阻塞风险、协作信息。"
+        />
 
-        <label className="office-textarea compact">
-          下周计划草稿
-          <textarea
-            value={metadata.next_plan || ''}
-            onChange={(event) => updateMetadata('next_plan', event.target.value)}
-            placeholder="可选。没有明确计划时，系统会基于未完成事项给出建议并标记依据。"
-          />
-        </label>
+        <Textarea
+          label="下周计划草稿"
+          rows={3}
+          value={metadata.next_plan || ''}
+          onChange={(event) => updateMetadata('next_plan', event.target.value)}
+          placeholder="可选。没有明确计划时，系统会基于未完成事项给出建议并标记依据。"
+        />
 
         <div className="meeting-reference-box">
           <div className="workbench-heading">
@@ -1630,14 +1646,21 @@ function WeeklyReportView({
         </div>
 
         <div className="button-row">
-          <button type="button" className="button primary" onClick={onRun} disabled={isRunning}>
-            {isRunning ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+          <Button
+            onClick={onRun}
+            disabled={isRunning}
+            iconLeft={isRunning ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+          >
             生成周报
-          </button>
-          <button type="button" className="button dark" onClick={onSave} disabled={!result || isSaving}>
-            {isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={onSave}
+            disabled={!result || isSaving}
+            iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+          >
             保存输出
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1679,77 +1702,76 @@ function PrdReviewView({
             <span className="eyebrow">需求评审 Skill</span>
             <h2>从想法到可评审 PRD 草稿</h2>
           </div>
-          <span className={canUseRag ? 'status ready' : 'status fallback'}>{canUseRag ? 'RAG 可用' : 'RAG 关闭'}</span>
+          <Badge tone={canUseRag ? 'success' : 'neutral'}>{canUseRag ? 'RAG 可用' : 'RAG 关闭'}</Badge>
         </div>
 
         <div className="form-grid">
-          <label>
-            功能名称
-            <input
-              value={metadata.feature_name || ''}
-              onChange={(event) => {
-                updateMetadata('feature_name', event.target.value);
-                onTask({ ...task, title: event.target.value || task.title, metadata: { ...metadata, feature_name: event.target.value } });
-              }}
-              placeholder="例如：会议输出反馈迭代"
-            />
-          </label>
-          <label>
-            目标用户
-            <input
-              value={metadata.target_user || ''}
-              onChange={(event) => updateMetadata('target_user', event.target.value)}
-              placeholder="例如：产品实习生 / 项目负责人"
-            />
-          </label>
+          <Input
+            label="功能名称"
+            value={metadata.feature_name || ''}
+            onChange={(event) => {
+              updateMetadata('feature_name', event.target.value);
+              onTask({ ...task, title: event.target.value || task.title, metadata: { ...metadata, feature_name: event.target.value } });
+            }}
+            placeholder="例如：会议输出反馈迭代"
+          />
+          <Input
+            label="目标用户"
+            value={metadata.target_user || ''}
+            onChange={(event) => updateMetadata('target_user', event.target.value)}
+            placeholder="例如：产品实习生 / 项目负责人"
+          />
         </div>
 
-        <label className="office-textarea">
-          功能想法
-          <textarea
-            value={task.content}
-            onChange={(event) => onTask({ ...task, content: event.target.value })}
-            placeholder="描述功能想解决的问题、核心流程、预期输出。"
-          />
-        </label>
+        <Textarea
+          label="功能想法"
+          rows={5}
+          value={task.content}
+          onChange={(event) => onTask({ ...task, content: event.target.value })}
+          placeholder="描述功能想解决的问题、核心流程、预期输出。"
+        />
 
         <div className="form-grid">
-          <label>
-            用户反馈 / 痛点
-            <textarea
-              value={metadata.feedback || ''}
-              onChange={(event) => updateMetadata('feedback', event.target.value)}
-              placeholder="粘贴用户反馈、访谈片段或痛点描述。"
-            />
-          </label>
-          <label>
-            业务背景
-            <textarea
-              value={metadata.business_context || ''}
-              onChange={(event) => updateMetadata('business_context', event.target.value)}
-              placeholder="补充业务目标、现有流程、约束环境。"
-            />
-          </label>
+          <Textarea
+            label="用户反馈 / 痛点"
+            rows={3}
+            value={metadata.feedback || ''}
+            onChange={(event) => updateMetadata('feedback', event.target.value)}
+            placeholder="粘贴用户反馈、访谈片段或痛点描述。"
+          />
+          <Textarea
+            label="业务背景"
+            rows={3}
+            value={metadata.business_context || ''}
+            onChange={(event) => updateMetadata('business_context', event.target.value)}
+            placeholder="补充业务目标、现有流程、约束环境。"
+          />
         </div>
 
-        <label className="office-textarea compact">
-          约束条件
-          <textarea
-            value={metadata.constraints || ''}
-            onChange={(event) => updateMetadata('constraints', event.target.value)}
-            placeholder="例如：第一版不做第三方集成；输出必须可复制；用户数据按账号隔离。"
-          />
-        </label>
+        <Textarea
+          label="约束条件"
+          rows={3}
+          value={metadata.constraints || ''}
+          onChange={(event) => updateMetadata('constraints', event.target.value)}
+          placeholder="例如：第一版不做第三方集成；输出必须可复制；用户数据按账号隔离。"
+        />
 
         <div className="button-row">
-          <button type="button" className="button primary" onClick={onRun} disabled={isRunning}>
-            {isRunning ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+          <Button
+            onClick={onRun}
+            disabled={isRunning}
+            iconLeft={isRunning ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+          >
             生成评审材料
-          </button>
-          <button type="button" className="button dark" onClick={onSave} disabled={!result || isSaving}>
-            {isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={onSave}
+            disabled={!result || isSaving}
+            iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+          >
             保存输出
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1850,15 +1872,11 @@ function SimpleListBlock({
   items: string[];
 }) {
   return (
-    <section className={`list-block ${tone}`}>
-      <header>
-        <CheckCircle2 size={18} />
-        <span>{title}</span>
-      </header>
+    <SemanticPanel tone={tone} icon={<CheckCircle2 size={18} />} title={title} count={items.length}>
       {items.length === 0 ? (
         <p className="list-empty">未提及</p>
       ) : (
-        <ul>
+        <ul className="semantic-list">
           {items.map((item, index) => (
             <li key={`${item}-${index}`}>
               <strong>{item}</strong>
@@ -1866,7 +1884,7 @@ function SimpleListBlock({
           ))}
         </ul>
       )}
-    </section>
+    </SemanticPanel>
   );
 }
 
@@ -1900,8 +1918,7 @@ function OfficeOutputView({
         </div>
         {loading ? (
           <div className="loading-row">
-            <Loader2 className="spin" size={18} />
-            正在读取输出记录
+            <Spinner size={18} label="正在读取输出记录" />
           </div>
         ) : outputs.length === 0 ? (
           <div className="empty-state">
@@ -1970,52 +1987,43 @@ function FeedbackFormPanel({
         </div>
       </div>
       <div className="score-grid">
-        <ScoreInput label="准确性" value={form.accuracy_score} onChange={(value) => onForm({ ...form, accuracy_score: value })} />
-        <ScoreInput label="可复制性" value={form.copyability_score} onChange={(value) => onForm({ ...form, copyability_score: value })} />
-        <ScoreInput label="完整性" value={form.completeness_score} onChange={(value) => onForm({ ...form, completeness_score: value })} />
+        <ScorePicker label="准确性" value={form.accuracy_score} onChange={(value) => onForm({ ...form, accuracy_score: value })} />
+        <ScorePicker label="可复制性" value={form.copyability_score} onChange={(value) => onForm({ ...form, copyability_score: value })} />
+        <ScorePicker label="完整性" value={form.completeness_score} onChange={(value) => onForm({ ...form, completeness_score: value })} />
       </div>
-      <label className="check-row feedback-check">
-        <input
-          type="checkbox"
-          checked={form.needs_heavy_edit}
-          onChange={(event) => onForm({ ...form, needs_heavy_edit: event.target.checked })}
-        />
-        <span>需要大量人工修改</span>
-      </label>
-      <div className="form-grid">
-        <label>
-          遗漏了什么
-          <textarea value={form.missing_info} onChange={(event) => onForm({ ...form, missing_info: event.target.value })} />
-        </label>
-        <label>
-          哪些内容有幻觉
-          <textarea value={form.hallucination} onChange={(event) => onForm({ ...form, hallucination: event.target.value })} />
-        </label>
-      </div>
-      <label className="office-textarea compact">
-        下一版建议
-        <textarea value={form.suggestion} onChange={(event) => onForm({ ...form, suggestion: event.target.value })} />
-      </label>
-      <button type="button" className="button primary" onClick={onSubmit} disabled={isSubmitting}>
-        {isSubmitting ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
-        提交反馈
-      </button>
-    </section>
-  );
-}
-
-function ScoreInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return (
-    <label>
-      {label}
-      <input
-        type="number"
-        min={1}
-        max={5}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+      <Switch
+        checked={form.needs_heavy_edit}
+        onChange={(checked) => onForm({ ...form, needs_heavy_edit: checked })}
+        label="需要大量人工修改"
       />
-    </label>
+      <div className="form-grid">
+        <Textarea
+          label="遗漏了什么"
+          rows={3}
+          value={form.missing_info}
+          onChange={(event) => onForm({ ...form, missing_info: event.target.value })}
+        />
+        <Textarea
+          label="哪些内容有幻觉"
+          rows={3}
+          value={form.hallucination}
+          onChange={(event) => onForm({ ...form, hallucination: event.target.value })}
+        />
+      </div>
+      <Textarea
+        label="下一版建议"
+        rows={3}
+        value={form.suggestion}
+        onChange={(event) => onForm({ ...form, suggestion: event.target.value })}
+      />
+      <Button
+        onClick={onSubmit}
+        disabled={isSubmitting}
+        iconLeft={isSubmitting ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+      >
+        提交反馈
+      </Button>
+    </section>
   );
 }
 
@@ -2211,48 +2219,36 @@ function ComposeView({
             <span className="eyebrow">新建会议</span>
             <h2>输入转写稿</h2>
           </div>
-          <button type="button" className="button secondary" onClick={() => onFormChange(sampleMeeting)}>
-            <Sparkles size={16} />
+          <Button variant="secondary" size="sm" onClick={() => onFormChange(sampleMeeting)} iconLeft={<Sparkles size={16} />}>
             示例
-          </button>
+          </Button>
         </div>
 
         <div className="form-grid">
-          <label>
-            会议标题
-            <input
-              value={form.title}
-              onChange={(event) => onFormChange({ ...form, title: event.target.value })}
-              placeholder="例如：AI 会议助手第一版功能讨论"
-            />
-          </label>
-          <label>
-            会议日期
-            <input
-              type="date"
-              value={form.date}
-              onChange={(event) => onFormChange({ ...form, date: event.target.value })}
-            />
-          </label>
-          <label>
-            会议类型
-            <select
-              value={form.meeting_type}
-              onChange={(event) => onFormChange({ ...form, meeting_type: event.target.value })}
-            >
-              {meetingTypes.map((type) => (
-                <option key={type}>{type}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            参会人
-            <input
-              value={form.participants}
-              onChange={(event) => onFormChange({ ...form, participants: event.target.value })}
-              placeholder="姓名用逗号分隔"
-            />
-          </label>
+          <Input
+            label="会议标题"
+            value={form.title}
+            onChange={(event) => onFormChange({ ...form, title: event.target.value })}
+            placeholder="例如：AI 会议助手第一版功能讨论"
+          />
+          <Input
+            label="会议日期"
+            type="date"
+            value={form.date}
+            onChange={(event) => onFormChange({ ...form, date: event.target.value })}
+          />
+          <Select
+            label="会议类型"
+            value={form.meeting_type}
+            onChange={(event) => onFormChange({ ...form, meeting_type: event.target.value })}
+            options={[...meetingTypes]}
+          />
+          <Input
+            label="参会人"
+            value={form.participants}
+            onChange={(event) => onFormChange({ ...form, participants: event.target.value })}
+            placeholder="姓名用逗号分隔"
+          />
         </div>
 
         <div className="transcript-workbench">
@@ -2291,14 +2287,21 @@ function ComposeView({
         </div>
 
         <div className="button-row">
-          <button type="button" className="button primary" onClick={onAnalyze} disabled={isAnalyzing}>
-            {isAnalyzing ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+          <Button
+            onClick={onAnalyze}
+            disabled={isAnalyzing}
+            iconLeft={isAnalyzing ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+          >
             生成结构化纪要
-          </button>
-          <button type="button" className="button dark" onClick={onSave} disabled={!analysis || isSaving}>
-            {isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={onSave}
+            disabled={!analysis || isSaving}
+            iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+          >
             保存到记忆库
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -2584,15 +2587,12 @@ function RagPanel({
           <span className="eyebrow">RAG 资料库</span>
           <h2>生成时可选增强</h2>
         </div>
-        <label className="switch-control">
-          <input
-            type="checkbox"
-            checked={enabled && canEnable}
-            disabled={!canEnable}
-            onChange={(event) => onEnabled(event.target.checked)}
-          />
-          <span>{enabled && canEnable ? '已启用' : '关闭'}</span>
-        </label>
+        <Switch
+          checked={enabled && canEnable}
+          disabled={!canEnable}
+          onChange={(checked) => onEnabled(checked)}
+          label={enabled && canEnable ? '已启用' : '关闭'}
+        />
       </div>
 
       <div className="rag-management">
@@ -2632,35 +2632,39 @@ function RagPanel({
         <div className="rag-editor">
           <span className="rag-edit-state">{selectedLabel}</span>
           <div className="form-grid single">
-            <label>
-              资料库名称
-              <input value={title} onChange={(event) => onTitle(event.target.value)} placeholder="例如：产品背景资料" />
-            </label>
-            <label>
-              资料库内容
-              <textarea
-                value={content}
-                onChange={(event) => onContent(event.target.value)}
-                placeholder="粘贴项目背景、业务规则、术语表或协作约定。保存后才能启用 RAG。"
-              />
-            </label>
+            <Input
+              label="资料库名称"
+              value={title}
+              onChange={(event) => onTitle(event.target.value)}
+              placeholder="例如：产品背景资料"
+            />
+            <Textarea
+              label="资料库内容"
+              rows={6}
+              value={content}
+              onChange={(event) => onContent(event.target.value)}
+              placeholder="粘贴项目背景、业务规则、术语表或协作约定。保存后才能启用 RAG。"
+            />
           </div>
 
           <div className="button-row tight rag-editor-actions">
             <div className="rag-primary-actions">
-              <button type="button" className="button secondary" onClick={onSave} disabled={isSaving || !content.trim()}>
-                {isSaving ? <Loader2 className="spin" size={17} /> : <Settings2 size={17} />}
+              <Button
+                variant="secondary"
+                onClick={onSave}
+                disabled={isSaving || !content.trim()}
+                iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Settings2 size={17} />}
+              >
                 {selectedDocumentId ? '更新资料库' : '保存资料库'}
-              </button>
-              <button
-                type="button"
-                className="button danger"
+              </Button>
+              <Button
+                variant="danger"
                 onClick={onDelete}
                 disabled={!selectedDocumentId || isDeleting}
+                iconLeft={isDeleting ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
               >
-                {isDeleting ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
                 删除
-              </button>
+              </Button>
             </div>
             <span className="rag-hint">{canEnable ? `${documents.length} 个资料库可用` : '默认关闭，保存资料库后可启用'}</span>
           </div>
@@ -2693,10 +2697,9 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
       </div>
 
       {analysis.warnings.length > 0 && (
-        <div className="notice warning">
-          <AlertTriangle size={17} />
+        <Alert tone="warn" icon={<AlertTriangle size={17} />}>
           {analysis.warnings[0]}
-        </div>
+        </Alert>
       )}
 
       {analysis.rag && (
@@ -2770,9 +2773,9 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
           <span className="eyebrow">长期记忆</span>
           <div className="chip-row">
             {minutes.long_term_memory.map((item: LongTermMemory) => (
-              <span className="memory-chip" key={`${item.category}-${item.memory}`}>
+              <Tag accent="bloom" key={`${item.category}-${item.memory}`}>
                 {item.category} · {item.memory}
-              </span>
+              </Tag>
             ))}
           </div>
         </div>
@@ -2780,9 +2783,9 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
           <span className="eyebrow">关键词</span>
           <div className="chip-row">
             {minutes.keywords.map((keyword) => (
-              <span className="tag-chip" key={keyword}>
+              <Tag accent="sun" key={keyword}>
                 {keyword}
-              </span>
+              </Tag>
             ))}
           </div>
         </div>
@@ -2823,22 +2826,24 @@ function LibraryView({
           <h2>历史会议</h2>
         </div>
         <div className="library-controls">
-          <label className="search-box">
-            <Search size={17} />
-            <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="标题、关键词、参会人" />
-          </label>
-          <select value={typeFilter} onChange={(event) => onTypeFilter(event.target.value)}>
-            {['全部', ...meetingTypes.filter((type) => type !== '自动识别')].map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
+          <Input
+            iconLeft={<Search size={17} />}
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="标题、关键词、参会人"
+            style={{ minWidth: 220 }}
+          />
+          <Select
+            value={typeFilter}
+            onChange={(event) => onTypeFilter(event.target.value)}
+            options={['全部', ...meetingTypes.filter((type) => type !== '自动识别')]}
+          />
         </div>
       </div>
 
       {loading ? (
         <div className="loading-row">
-          <Loader2 className="spin" size={18} />
-          正在读取记忆库
+          <Spinner size={18} label="正在读取记忆库" />
         </div>
       ) : meetings.length === 0 ? (
         <EmptyState />
@@ -2849,7 +2854,7 @@ function LibraryView({
             return (
               <button type="button" className="meeting-card" key={meeting.id} onClick={() => onSelectMeeting(meeting.id)}>
                 <div className="meeting-card-main">
-                  <span className="status ready">{minutes.meeting_type || meeting.meeting_type}</span>
+                  <Badge tone="success">{minutes.meeting_type || meeting.meeting_type}</Badge>
                   <h3>{meeting.title}</h3>
                   <p>{minutes.one_sentence_summary}</p>
                   <div className="card-meta">
@@ -2896,10 +2901,9 @@ function DetailView({
     return (
       <section className="panel detail-panel">
         <EmptyState />
-        <button type="button" className="button secondary" onClick={onOpenLibrary}>
-          <Library size={17} />
+        <Button variant="secondary" onClick={onOpenLibrary} iconLeft={<Library size={17} />}>
           打开记忆库
-        </button>
+        </Button>
       </section>
     );
   }
@@ -2914,7 +2918,7 @@ function DetailView({
             <span className="eyebrow">会议详情</span>
             <h2>{meeting.title}</h2>
           </div>
-          <span className="status ready">{minutes.meeting_type}</span>
+          <Badge tone="success">{minutes.meeting_type}</Badge>
         </div>
 
         <div className="detail-meta">
@@ -2993,15 +2997,19 @@ function DetailView({
         </div>
 
         <div className="question-box">
-          <textarea
+          <Textarea
+            rows={3}
             value={question}
             onChange={(event) => onQuestion(event.target.value)}
             placeholder="例如：这次会议谁负责后续跟进？"
           />
-          <button type="button" className="button primary" onClick={onAsk} disabled={isAsking || !question.trim()}>
-            {isAsking ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+          <Button
+            onClick={onAsk}
+            disabled={isAsking || !question.trim()}
+            iconLeft={isAsking ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+          >
             发送
-          </button>
+          </Button>
         </div>
 
         <div className="qa-list">
@@ -3036,21 +3044,17 @@ function ListBlock<T>({
   render: (item: T) => ReactNode;
 }) {
   return (
-    <section className={`list-block ${tone}`}>
-      <header>
-        {icon}
-        <span>{title}</span>
-      </header>
+    <SemanticPanel tone={tone} icon={icon} title={title} count={items.length}>
       {items.length === 0 ? (
         <p className="list-empty">未提及</p>
       ) : (
-        <ul>
+        <ul className="semantic-list">
           {items.map((item, index) => (
             <li key={index}>{render(item)}</li>
           ))}
         </ul>
       )}
-    </section>
+    </SemanticPanel>
   );
 }
 
@@ -3159,116 +3163,54 @@ function AiSettingsModal({
     onSettingsChange({ ...settings, ...patch });
   }
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) {
-    return null;
-  }
-
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-settings-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="modal-header">
-          <div>
-            <span className="eyebrow">API 设置</span>
-            <h2 id="ai-settings-title">AI 连接配置</h2>
-          </div>
-          <button type="button" className="icon-button" aria-label="关闭 API 设置" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </header>
+    <Modal open={isOpen} onClose={onClose} title="AI 连接配置" width={500}>
+      <div className="modal-status">
+        <SourceBadge configured={configured} />
+        <p>{configured ? displayModel : '未配置 API_KEY'}</p>
+      </div>
 
-        <div className="modal-status">
-          <SourceBadge configured={configured} />
-          <p>{configured ? displayModel : '未配置 API_KEY'}</p>
-        </div>
+      <div className="ai-provider-form">
+        <SegmentedControl
+          full
+          value={settings.mode}
+          onChange={(value) =>
+            value === 'default'
+              ? update({ mode: 'default', baseUrl: GEMINI_API_BASE_URL, apiKey: '', model: GEMINI_API_MODEL })
+              : update({ mode: 'custom', baseUrl: '', apiKey: '', model: '' })
+          }
+          options={[
+            { value: 'default', label: '默认 Gemini' },
+            { value: 'custom', label: '自定义网络' },
+          ]}
+        />
 
-        <div className="ai-provider-form">
-          <div className="ai-mode-tabs">
-            <button
-              type="button"
-              className={settings.mode === 'default' ? 'active' : ''}
-              onClick={() =>
-                update({
-                  mode: 'default',
-                  baseUrl: GEMINI_API_BASE_URL,
-                  apiKey: '',
-                  model: GEMINI_API_MODEL,
-                })
-              }
-            >
-              默认 Gemini
-            </button>
-            <button
-              type="button"
-              className={settings.mode === 'custom' ? 'active' : ''}
-              onClick={() =>
-                update({
-                  mode: 'custom',
-                  baseUrl: '',
-                  apiKey: '',
-                  model: '',
-                })
-              }
-            >
-              自定义网络
-            </button>
-          </div>
-
-          {settings.mode === 'custom' && (
-            <>
-              <label>
-                API Base URL
-                <input
-                  value={settings.baseUrl}
-                  onChange={(event) => update({ baseUrl: event.target.value })}
-                  placeholder="https://api.example.com/v1"
-                />
-              </label>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  value={settings.apiKey}
-                  onChange={(event) => update({ apiKey: event.target.value })}
-                  placeholder="sk-..."
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                模型名称
-                <input
-                  value={settings.model}
-                  onChange={(event) => update({ model: event.target.value })}
-                  placeholder="model-id"
-                />
-              </label>
-            </>
-          )}
-        </div>
-      </section>
-    </div>
+        {settings.mode === 'custom' && (
+          <>
+            <Input
+              label="API Base URL"
+              value={settings.baseUrl}
+              onChange={(event) => update({ baseUrl: event.target.value })}
+              placeholder="https://api.example.com/v1"
+            />
+            <Input
+              label="API Key"
+              type="password"
+              value={settings.apiKey}
+              onChange={(event) => update({ apiKey: event.target.value })}
+              placeholder="sk-..."
+              autoComplete="off"
+            />
+            <Input
+              label="模型名称"
+              value={settings.model}
+              onChange={(event) => update({ model: event.target.value })}
+              placeholder="model-id"
+            />
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 

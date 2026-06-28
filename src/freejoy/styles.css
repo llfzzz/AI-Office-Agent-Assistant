@@ -1,0 +1,8 @@
+/* Free Joy — foundation entry.
+   Imports design tokens + base resets. Import once at the app root.
+   Order matters: fonts → colors → typography → spacing → base. */
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/base.css";

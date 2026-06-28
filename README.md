@@ -23,7 +23,7 @@
 - Express API server
 - PocketBase：本地数据库、用户认证、会议记忆和 RAG 资料库
 - Google Gemini API
-- `awesome-design-md` Notion 风格设计参考
+- Free Joy（FJ）设计系统 —— 暖纸白 + Joy Coral 珊瑚色，组件 vendored 在 `src/freejoy/`，适配组件在 `src/ui/`
 
 ## API 配置
 
@@ -120,15 +120,14 @@ npm start
 
 ## 设计说明
 
-前端设计参考 `VoltAgent/awesome-design-md` 中的 Notion design-md：
+前端采用 **Free Joy（FJ）设计系统** 重构（来自 claude.ai/design，经 Claude 设计 MCP 导入）：
 
-- 深 navy 工作区头部
-- 白色文档式面板
-- 8px 矩形按钮和输入框
-- 12px 结果卡片和 Skill 卡片
-- 用 pastel 色块区分会议纪要、周报、需求评审、Agent Plan 和反馈状态
+- 暖纸白底（`--paper`）+ 单一 Joy Coral 珊瑚色交互强调（`--accent` `#F2603C`）
+- Bricolage Grotesque 标题 + Hanken Grotesk 正文
+- 白色发丝边框卡片、pill 按钮/标签、克制圆角与轻柔玻璃质感
+- 会议纪要分类（决策/待办/风险/问题/记忆/摘要）用 FJ 软色点缀区分
 
-项目内的设计基准见 `DESIGN.md`。
+接入方式：FJ token 在 `src/index.css` 引入，`src/App.css` 的 `:root` 做 token bridge 全站换肤；FJ 组件 vendored 在 `src/freejoy/`，应用适配组件在 `src/ui/`。项目内的设计基准见 `DESIGN.md`。
 
 ## 后续可扩展
 

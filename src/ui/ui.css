@@ -1,0 +1,25 @@
+/* App adapter styles (src/ui) — Free Joy aligned. */
+.semantic-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.semantic-list li {
+  display: grid;
+  gap: 3px;
+}
+
+.semantic-list li strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.semantic-list li span {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
+}

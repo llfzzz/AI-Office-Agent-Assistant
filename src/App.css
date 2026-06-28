@@ -1,29 +1,37 @@
 :root {
-  --primary: #5645d4;
-  --primary-pressed: #4534b3;
-  --navy: #0a1530;
-  --navy-mid: #1a2a52;
-  --canvas: #ffffff;
-  --surface: #f6f5f4;
-  --surface-soft: #fafaf9;
-  --hairline: #e5e3df;
-  --hairline-strong: #c8c4be;
-  --ink: #1a1a1a;
-  --charcoal: #37352f;
-  --slate: #5d5b54;
-  --steel: #787671;
-  --muted: #bbb8b1;
-  --peach: #ffe8d4;
-  --rose: #fde0ec;
-  --mint: #d9f3e1;
-  --lavender: #e6e0f5;
-  --sky: #dcecfa;
-  --yellow: #f9e79f;
-  --green: #1aae39;
-  --orange: #dd5b00;
-  --error: #e03131;
-  --shadow-card: rgba(15, 15, 15, 0.08) 0 4px 12px 0;
-  --shadow-deep: rgba(15, 15, 15, 0.2) 0 24px 48px -8px;
+  /* ============================================================
+     Free Joy bridge — the app's original tokens are remapped onto
+     Free Joy semantic tokens (defined in src/freejoy/tokens/*.css and
+     loaded first via index.css). Re-skin the whole app by editing the
+     right-hand side here. Two FJ name-collisions are handled:
+       • --surface (app: paper page bg) is renamed to --app-surface so it
+         no longer overrides FJ's --surface (white card surface).
+       • --ink is intentionally dropped here to inherit FJ's --ink.
+     ============================================================ */
+  --primary: var(--accent);
+  --primary-pressed: var(--accent-press);
+  --navy: var(--ink);                 /* dark brand band → soft near-black */
+  --navy-mid: #34332f;                /* warm charcoal companion to FJ ink */
+  --canvas: var(--white);             /* main card / panel surface */
+  --app-surface: var(--bg);           /* page background (warm paper) */
+  --surface-soft: var(--bg-sunken);   /* subtle sunken fill */
+  --hairline: var(--border);
+  --hairline-strong: var(--border-strong);
+  --charcoal: var(--ink);
+  --slate: var(--text-muted);
+  --steel: var(--text-subtle);
+  --muted: var(--text-disabled);
+  --peach: var(--joy-50);             /* warm accent panel */
+  --rose: var(--danger-100);          /* open questions / risk-soft */
+  --mint: var(--success-100);         /* decisions */
+  --lavender: var(--bloom-100);       /* long-term memory */
+  --sky: var(--info-100);             /* action items */
+  --yellow: var(--sun-100);           /* summary emphasis */
+  --green: var(--success-500);
+  --orange: var(--warn-500);
+  --error: var(--danger-500);
+  --shadow-card: var(--shadow-sm);
+  --shadow-deep: var(--shadow-lg);
 }
 
 .app-shell {
@@ -209,11 +217,11 @@
 }
 
 .utility-item:hover {
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .utility-item.danger {
-  color: #841b1b;
+  color: var(--danger-700);
 }
 
 .nav-stack {
@@ -288,7 +296,7 @@
 .nav-item:hover,
 .nav-item.active {
   color: var(--ink);
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .nav-item:disabled {
@@ -384,83 +392,6 @@
   padding-top: 12px;
 }
 
-.ai-mode-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.ai-mode-tabs button {
-  min-height: 34px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 8px;
-  color: var(--steel);
-  cursor: pointer;
-  background: #ffffff;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.ai-mode-tabs button.active {
-  border-color: rgba(86, 69, 212, 0.32);
-  color: var(--primary);
-  background: rgba(86, 69, 212, 0.08);
-}
-
-.ai-provider-form label {
-  gap: 6px;
-  font-size: 12px;
-}
-
-.ai-provider-form input,
-.ai-provider-form select {
-  height: 38px;
-  border-radius: 8px;
-  font-size: 12px;
-}
-
-.ai-provider-form input:disabled {
-  color: var(--steel);
-  background: var(--surface);
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: rgba(10, 21, 48, 0.42);
-}
-
-.settings-modal {
-  width: min(560px, 100%);
-  max-height: min(720px, calc(100vh - 36px));
-  display: grid;
-  gap: 16px;
-  overflow: auto;
-  padding: 20px;
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
-  background: var(--canvas);
-  box-shadow: var(--shadow-deep);
-}
-
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.modal-header h2 {
-  margin: 4px 0 0;
-  font-size: 22px;
-  line-height: 1.18;
-  letter-spacing: 0;
-}
-
 .modal-status {
   display: flex;
   align-items: center;
@@ -501,7 +432,7 @@
 
 .source-badge.fallback,
 .status.fallback {
-  color: #793400;
+  color: var(--warn-700);
   background: var(--peach);
 }
 
@@ -516,7 +447,7 @@
   padding: 12px 10px;
   border-radius: 12px;
   text-align: center;
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .metric strong,
@@ -573,7 +504,7 @@
   gap: 28px;
   align-items: stretch;
   padding: 28px;
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .auth-screen > .spin {
@@ -598,7 +529,7 @@
 }
 
 .auth-hero .brand span {
-  color: #d8d4f8;
+  color: var(--joy-100);
 }
 
 .auth-hero h1 {
@@ -624,34 +555,6 @@
   background: var(--canvas);
 }
 
-.auth-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-  padding: 4px;
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.auth-tabs button {
-  border: 0;
-  border-radius: 6px;
-  min-height: 36px;
-  color: var(--steel);
-  background: transparent;
-  font-weight: 700;
-}
-
-.auth-tabs button.active {
-  color: var(--ink);
-  background: #ffffff;
-  box-shadow: var(--shadow-card);
-}
-
-.auth-submit {
-  width: 100%;
-}
-
 .hero-copy h1 {
   max-width: 760px;
   margin: 0 0 24px;
@@ -671,7 +574,7 @@
 }
 
 .section-kicker {
-  color: #d8d4f8;
+  color: var(--joy-100);
 }
 
 .hero-actions,
@@ -709,8 +612,8 @@
 }
 
 .button.danger {
-  color: #841b1b;
-  background: #ffe4e4;
+  color: var(--danger-700);
+  background: var(--danger-100);
 }
 
 .button:disabled {
@@ -792,7 +695,7 @@
 .mock-lines span {
   height: 8px;
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .mock-lines span:nth-child(2) {
@@ -815,13 +718,13 @@
 }
 
 .notice.error {
-  color: #841b1b;
-  background: #ffe4e4;
+  color: var(--danger-700);
+  background: var(--danger-100);
 }
 
 .notice.warning {
   margin: 0;
-  color: #793400;
+  color: var(--warn-700);
   background: var(--peach);
 }
 
@@ -1044,7 +947,7 @@ textarea:focus {
 .attachment-tool-label.disabled {
   cursor: not-allowed;
   color: var(--muted);
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .attachment-tool-label {
@@ -1385,7 +1288,7 @@ textarea:focus {
 .workspace-title p {
   max-width: 760px;
   margin: 0;
-  color: #d8d4f8;
+  color: var(--joy-100);
   line-height: 1.55;
 }
 
@@ -1522,7 +1425,7 @@ textarea:focus {
   padding: 8px;
   border-radius: 8px;
   color: var(--charcoal);
-  background: var(--surface);
+  background: var(--app-surface);
   font-size: 13px;
   font-weight: 800;
   text-align: center;
@@ -1647,7 +1550,7 @@ textarea:focus {
 .office-output-row:hover,
 .office-output-row.active {
   border-color: var(--hairline-strong);
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .office-output-row span,
@@ -1694,7 +1597,7 @@ textarea:focus {
   gap: 7px;
   padding: 14px;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .iteration-list strong,
@@ -1738,23 +1641,6 @@ textarea:focus {
   gap: 8px;
   margin: 0;
   padding-left: 20px;
-}
-
-.switch-control {
-  min-width: 96px;
-  display: inline-flex;
-  grid-template-columns: none;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--steel);
-  font-size: 13px;
-}
-
-.switch-control input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--primary);
 }
 
 .rag-hint {
@@ -1835,70 +1721,6 @@ textarea:focus {
   grid-template-columns: 1fr;
 }
 
-.list-block {
-  min-width: 0;
-  padding: 16px;
-  border-radius: 12px;
-  color: var(--charcoal);
-}
-
-.list-block.mint {
-  background: var(--mint);
-}
-
-.list-block.sky {
-  background: var(--sky);
-}
-
-.list-block.peach {
-  background: var(--peach);
-}
-
-.list-block.rose {
-  background: var(--rose);
-}
-
-.list-block.lavender {
-  background: var(--lavender);
-}
-
-.list-block header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-weight: 800;
-}
-
-.list-block ul {
-  display: grid;
-  gap: 10px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.list-block li {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.62);
-}
-
-.list-block strong,
-.list-block span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.list-block strong {
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.list-block span,
 .list-empty {
   color: var(--slate);
   font-size: 13px;
@@ -1937,12 +1759,12 @@ textarea:focus {
 }
 
 .memory-chip {
-  color: #391c57;
+  color: var(--bloom-700);
   background: var(--lavender);
 }
 
 .tag-chip {
-  color: #793400;
+  color: var(--warn-700);
   background: var(--peach);
 }
 
@@ -1971,24 +1793,6 @@ textarea:focus {
 
 .library-controls select {
   width: 150px;
-}
-
-.search-box {
-  position: relative;
-  width: min(360px, 52vw);
-  display: block;
-}
-
-.search-box svg {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  color: var(--steel);
-  transform: translateY(-50%);
-}
-
-.search-box input {
-  padding-left: 38px;
 }
 
 .loading-row {
@@ -2120,7 +1924,7 @@ textarea:focus {
   gap: 8px;
   padding: 14px;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .qa-item strong,
@@ -2151,7 +1955,7 @@ textarea:focus {
   padding: 18px;
   border-radius: 12px;
   text-align: center;
-  background: var(--surface);
+  background: var(--app-surface);
 }
 
 .spin {
@@ -2365,15 +2169,6 @@ textarea:focus {
     display: none;
   }
 
-  .settings-modal {
-    max-height: calc(100vh - 28px);
-    padding: 16px;
-  }
-
-  .modal-header h2 {
-    font-size: 20px;
-  }
-
   .workspace-hero {
     padding: 24px;
     gap: 22px;
@@ -2434,9 +2229,7 @@ textarea:focus {
     flex-direction: column;
   }
 
-  .library-controls,
-  .search-box,
-  .library-controls select {
+  .library-controls {
     width: 100%;
   }
 
