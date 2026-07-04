@@ -14,6 +14,7 @@ export { Alert } from './components/feedback/Alert';
 export { Spinner } from './components/feedback/Spinner';
 export { SegmentedControl } from './components/navigation/SegmentedControl';
 export { Modal } from './components/overlay/Modal';
+export { Tooltip } from './components/overlay/Tooltip';
 export { Stat } from './components/data/Stat';
 
 export type { ButtonProps } from './components/core/Button';
@@ -28,4 +29,5 @@ export type { AlertProps } from './components/feedback/Alert';
 export type { SpinnerProps } from './components/feedback/Spinner';
 export type { SegmentedControlProps, SegmentOption } from './components/navigation/SegmentedControl';
 export type { ModalProps } from './components/overlay/Modal';
+export type { TooltipProps } from './components/overlay/Tooltip';
 export type { StatProps } from './components/data/Stat';

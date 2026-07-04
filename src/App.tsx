@@ -67,7 +67,7 @@ import {
   transcribeAudio,
 } from './api';
 import './App.css';
-import { Alert, Badge, Button, Card, Input, Modal, SegmentedControl, Select, Spinner, Switch, Tag, Textarea } from './freejoy';
+import { Alert, Badge, Button, Card, Input, Modal, SegmentedControl, Select, Spinner, Switch, Tag, Textarea, Tooltip } from './freejoy';
 import { ScorePicker, SemanticPanel } from './ui';
 // Note: keep these import lists in sync with actual usage (noUnusedLocals is on).
 import {
@@ -359,7 +359,7 @@ const navigationGroups: NavGroupDefinition[] = [
     id: 'memory',
     label: '记忆与资料',
     items: [
-      { view: 'rag', label: 'RAG 资料库', icon: Settings2 },
+      { view: 'rag', label: 'RAG 资料库', icon: Database },
       { view: 'library', label: '会议记忆库', icon: Library },
       {
         view: 'detail',
@@ -579,7 +579,7 @@ function App() {
   }, [search, session, typeFilter]);
 
   useEffect(() => {
-    if (!session || !['outputs', 'feedback'].includes(activeView)) return;
+    if (!session || !['skills', 'outputs', 'feedback'].includes(activeView)) return;
 
     let cancelled = false;
 
@@ -1101,21 +1101,23 @@ function App() {
                 onOpenSettings={() => setAiSettingsOpen(true)}
                 onLogout={handleLogout}
               />
-              <button
-                type="button"
-                className="icon-button nav-collapse-toggle"
-                aria-label={isNavCollapsed ? '展开导航' : '收起导航'}
-                aria-expanded={!isNavCollapsed}
-                onClick={() => setIsNavCollapsed((collapsed) => !collapsed)}
-              >
-                {isMobileViewport ? (
-                  isNavCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />
-                ) : isNavCollapsed ? (
-                  <Menu size={18} />
-                ) : (
-                  <PanelLeftClose size={18} />
-                )}
-              </button>
+              <Tooltip content={isNavCollapsed ? '展开导航' : '收起导航'} placement="right">
+                <button
+                  type="button"
+                  className="icon-button nav-collapse-toggle"
+                  aria-label={isNavCollapsed ? '展开导航' : '收起导航'}
+                  aria-expanded={!isNavCollapsed}
+                  onClick={() => setIsNavCollapsed((collapsed) => !collapsed)}
+                >
+                  {isMobileViewport ? (
+                    isNavCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />
+                  ) : isNavCollapsed ? (
+                    <Menu size={18} />
+                  ) : (
+                    <PanelLeftClose size={18} />
+                  )}
+                </button>
+              </Tooltip>
             </div>
           </div>
 
@@ -1144,18 +1146,23 @@ function App() {
                       const disabled = item.disabled?.({ selectedMeeting }) || false;
 
                       return (
-                        <button
+                        <Tooltip
                           key={item.view}
-                          type="button"
-                          aria-label={item.label}
-                          data-tooltip={item.label}
-                          className={activeView === item.view ? 'nav-item active' : 'nav-item'}
-                          onClick={() => handleNavSelect(item.view)}
-                          disabled={disabled}
+                          content={isNavCollapsed ? (disabled ? '请先选择会议' : item.label) : undefined}
+                          placement="right"
+                          style={{ width: '100%' }}
                         >
-                          <Icon size={18} />
-                          <span>{item.label}</span>
-                        </button>
+                          <button
+                            type="button"
+                            aria-label={item.label}
+                            className={activeView === item.view ? 'nav-item active' : 'nav-item'}
+                            onClick={() => handleNavSelect(item.view)}
+                            disabled={disabled}
+                          >
+                            <Icon size={18} />
+                            <span>{item.label}</span>
+                          </button>
+                        </Tooltip>
                       );
                     })}
                   </div>
@@ -1185,6 +1192,11 @@ function App() {
             meetingCount={stats.meetings}
             outputCount={stats.outputs}
             feedbackCount={stats.feedback}
+            actionCount={stats.actions}
+            memoryCount={stats.memories}
+            knowledgeCount={knowledgeDocuments.length}
+            ragEnabled={ragEnabled}
+            recentOutputs={officeOutputs.slice(0, 5)}
             onOpenView={showView}
           />
         )}
@@ -1447,20 +1459,31 @@ function SkillWorkbenchView({
   meetingCount,
   outputCount,
   feedbackCount,
+  actionCount,
+  memoryCount,
+  knowledgeCount,
+  ragEnabled,
+  recentOutputs,
   onOpenView,
 }: {
   meetingCount: number;
   outputCount: number;
   feedbackCount: number;
+  actionCount: number;
+  memoryCount: number;
+  knowledgeCount: number;
+  ragEnabled: boolean;
+  recentOutputs: OfficeOutputRecord[];
   onOpenView: (view: View) => void;
 }) {
+  const visibleOutputs = recentOutputs.slice(0, 4);
+
   return (
     <section className="office-page">
       <div className="workspace-title">
         <div>
-          <span className="eyebrow">AI Office Agent Assistant</span>
           <h1>Skill 工作台</h1>
-          <p>会议助手保留为会议纪要 Skill，并扩展周报生成、需求评审、Agent Plan、输出保存和反馈迭代。</p>
+          <p>选择合适的技能，AI 智能体将为你高效处理办公任务。</p>
         </div>
         <div className="workspace-stats">
           <Metric label="会议记忆" value={meetingCount} />
@@ -1469,73 +1492,170 @@ function SkillWorkbenchView({
         </div>
       </div>
 
-      <div className="skill-grid">
-        {skillCards.map((skill) => (
-          <Card
-            interactive
-            key={skill.id}
-            className={`skill-card ${skill.tone}`}
-            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-          >
-            <div className="skill-card-top">
-              <span className="skill-icon">
-                {skill.id === 'meeting_minutes' && <Mic size={20} />}
-                {skill.id === 'weekly_report' && <ClipboardList size={20} />}
-                {skill.id === 'prd_review' && <ShieldCheck size={20} />}
-              </span>
-              <div>
-                <h2>{skill.title}</h2>
-                <p>{skill.scene}</p>
-              </div>
-              <Badge tone={skill.tone === 'meeting' ? 'accent' : skill.tone === 'weekly' ? 'success' : 'bloom'}>
-                Skill
-              </Badge>
-            </div>
-            <dl className="skill-meta">
-              <div>
-                <dt>输入内容</dt>
-                <dd>{skill.inputs}</dd>
-              </div>
-              <div>
-                <dt>输出内容</dt>
-                <dd>{skill.outputs}</dd>
-              </div>
-              <div>
-                <dt>适合用户</dt>
-                <dd>{skill.users}</dd>
-              </div>
-              <div>
-                <dt>风险提示</dt>
-                <dd>{skill.risk}</dd>
-              </div>
-            </dl>
-            <Button
-              variant="secondary"
-              full
-              iconRight={<ArrowRight size={17} />}
-              onClick={() => onOpenView(skill.view)}
-              style={{ marginTop: 'auto' }}
-            >
-              进入 Skill
+      <div className="workbench-layout">
+        <div className="workbench-main">
+          <div className="section-heading-row">
+            <h2>我的技能</h2>
+            <Button variant="secondary" size="sm" iconLeft={<FilePlus2 size={16} />} onClick={() => onOpenView('docs')}>
+              添加技能
             </Button>
-          </Card>
-        ))}
-      </div>
+          </div>
 
-      <div className="agent-flow-panel">
-        <div className="panel-heading compact">
-          <div>
-            <span className="eyebrow">Agent Plan</span>
-            <h2>统一执行链路</h2>
+          <div className="skill-grid">
+            {skillCards.map((skill) => (
+              <Card
+                interactive
+                key={skill.id}
+                className={`skill-card ${skill.tone}`}
+                style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+              >
+                <div className="skill-card-top">
+                  <span className="skill-icon">
+                    {skill.id === 'meeting_minutes' && <Mic size={20} />}
+                    {skill.id === 'weekly_report' && <ClipboardList size={20} />}
+                    {skill.id === 'prd_review' && <ShieldCheck size={20} />}
+                  </span>
+                  <button
+                    type="button"
+                    className="skill-card-arrow"
+                    aria-label={`进入${skill.title}`}
+                    onClick={() => onOpenView(skill.view)}
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+                <div className="skill-card-copy">
+                  <h2>{skill.title.replace(' Skill', '')}</h2>
+                  <p>{skill.scene}</p>
+                </div>
+                <dl className="skill-meta">
+                  <div>
+                    <dt>输入</dt>
+                    <dd>{skill.inputs}</dd>
+                  </div>
+                  <div>
+                    <dt>输出</dt>
+                    <dd>{skill.outputs}</dd>
+                  </div>
+                </dl>
+                <div className="skill-card-footer">
+                  <Badge tone={skill.tone === 'meeting' ? 'accent' : skill.tone === 'weekly' ? 'success' : 'bloom'}>
+                    使用中
+                  </Badge>
+                  <span>适合：{skill.users}</span>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <div className="workbench-metrics">
+            <Metric label="待办事项" value={actionCount} />
+            <Metric label="长期记忆" value={memoryCount} />
+            <Metric label="知识条目" value={knowledgeCount} />
+            <Metric label="反馈记录" value={feedbackCount} />
+          </div>
+
+          <Card className="agent-flow-panel" padding="22px">
+            <div className="panel-heading compact">
+              <div>
+                <h2>Agent Plan（任务执行流程）</h2>
+                <p className="muted-copy">目标理解、资料检索、结构化生成和保存会按同一链路执行。</p>
+              </div>
+            </div>
+            <div className="flow-steps">
+              {['目标理解', '资料检索', '结构化生成', '保存结果'].map((step, index) => (
+                <div className={index < 3 ? 'flow-step complete' : 'flow-step pending'} key={step}>
+                  <span>{index + 1}</span>
+                  <strong>{step}</strong>
+                  <small>{index < 3 ? '已完成' : '待开始'}</small>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <div className="quick-entry-grid">
+            <Button variant="secondary" iconLeft={<Mic size={17} />} onClick={() => onOpenView('compose')}>
+              新建会议纪要
+            </Button>
+            <Button variant="secondary" iconLeft={<ClipboardList size={17} />} onClick={() => onOpenView('weekly')}>
+              生成周报
+            </Button>
+            <Button variant="secondary" iconLeft={<ShieldCheck size={17} />} onClick={() => onOpenView('prd')}>
+              需求评审
+            </Button>
+            <Button variant="secondary" iconLeft={<Database size={17} />} onClick={() => onOpenView('rag')}>
+              上传资料
+            </Button>
           </div>
         </div>
-        <div className="flow-steps">
-          {['目标理解', 'Skill 选择', '资料检索', '结构化生成', '质量自检', '结果保存', '反馈迭代'].map((step, index) => (
-            <Tag key={step} accent={index % 2 === 0 ? 'coral' : 'bloom'} dot>
-              {step}
-            </Tag>
-          ))}
-        </div>
+
+        <aside className="workbench-side">
+          <Card className="recent-output-card" padding="18px">
+            <div className="side-card-head">
+              <h2>最近输出</h2>
+              <button type="button" onClick={() => onOpenView('outputs')}>
+                全部 <ChevronRight size={14} />
+              </button>
+            </div>
+            {visibleOutputs.length > 0 ? (
+              <div className="recent-output-list">
+                {visibleOutputs.map((output) => (
+                  <button
+                    type="button"
+                    className="recent-output-row"
+                    key={output.id}
+                    onClick={() => onOpenView('outputs')}
+                  >
+                    <span className="recent-output-icon">
+                      {output.skill_id === 'weekly_report' ? <ClipboardList size={16} /> : output.skill_id === 'prd_review' ? <ShieldCheck size={16} /> : <Mic size={16} />}
+                    </span>
+                    <span>
+                      <strong>{output.title}</strong>
+                      <small>{skillName(output.skill_id)} · {new Date(output.updated_at).toLocaleString()}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="side-empty-state">
+                <Bot size={22} />
+                <p>保存办公输出后会在这里显示。</p>
+              </div>
+            )}
+          </Card>
+
+          <Card className="memory-status-card" padding="18px">
+            <div className="side-card-head">
+              <h2>记忆状态</h2>
+              <Badge tone={ragEnabled && knowledgeCount > 0 ? 'success' : 'neutral'}>
+                {ragEnabled && knowledgeCount > 0 ? '正常' : '待启用'}
+              </Badge>
+            </div>
+            <button type="button" className="memory-status-row" onClick={() => onOpenView('library')}>
+              <Library size={18} />
+              <span>会议记忆</span>
+              <strong>{meetingCount}</strong>
+              <ChevronRight size={14} />
+            </button>
+            <button type="button" className="memory-status-row" onClick={() => onOpenView('rag')}>
+              <Database size={18} />
+              <span>知识库（RAG）</span>
+              <strong>{knowledgeCount}</strong>
+              <ChevronRight size={14} />
+            </button>
+            <small>更新时间：当前会话</small>
+          </Card>
+
+          <Card className="feedback-nudge-card" padding="18px">
+            <div>
+              <h2>反馈与优化</h2>
+              <p>帮助我们改进，让智能体更懂你。</p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => onOpenView('feedback')}>
+              去反馈 <ArrowRight size={15} />
+            </Button>
+          </Card>
+        </aside>
       </div>
     </section>
   );
@@ -2374,63 +2494,69 @@ function MeetingContentToolbar({
 
   return (
     <div className="attachment-toolbar" aria-label="会议内容附件操作">
-      <button
-        type="button"
-        className={isRecording ? 'attachment-tool-button active' : 'attachment-tool-button'}
-        onClick={isRecording ? stopRecording : startRecording}
-        disabled={isTranscribing}
-        aria-label={isRecording ? '停止录音' : '开始录音'}
-        title={isRecording ? '停止录音' : '开始录音'}
-      >
-        <MeetingAssetIcon kind="recording" />
-      </button>
-      <label
-        className={isTranscribing ? 'attachment-tool-button attachment-tool-label disabled' : 'attachment-tool-button attachment-tool-label'}
-        aria-label="上传音频"
-        title="上传音频"
-      >
-        <MeetingAssetIcon kind="audio" />
-        <input
-          type="file"
-          accept="audio/*,video/mp4,video/webm"
+      <Tooltip content={isRecording ? '停止录音' : '开始录音'} placement="top">
+        <button
+          type="button"
+          className={isRecording ? 'attachment-tool-button active' : 'attachment-tool-button'}
+          onClick={isRecording ? stopRecording : startRecording}
           disabled={isTranscribing}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              onTranscribe(file, file.name, 'audio');
-              event.target.value = '';
-            }
-          }}
-        />
-      </label>
-      <label className="attachment-tool-button attachment-tool-label" aria-label="上传图片" title="上传图片">
-        <MeetingAssetIcon kind="image" />
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              onExtractAttachment(file);
-              event.target.value = '';
-            }
-          }}
-        />
-      </label>
-      <label className="attachment-tool-button attachment-tool-label" aria-label="上传文件" title="上传文件">
-        <MeetingAssetIcon kind="file" />
-        <input
-          type="file"
-          accept={meetingFileAccept}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              onExtractAttachment(file);
-              event.target.value = '';
-            }
-          }}
-        />
-      </label>
+          aria-label={isRecording ? '停止录音' : '开始录音'}
+        >
+          <MeetingAssetIcon kind="recording" />
+        </button>
+      </Tooltip>
+      <Tooltip content={isTranscribing ? '正在转写' : '上传音频'} placement="top">
+        <label
+          className={isTranscribing ? 'attachment-tool-button attachment-tool-label disabled' : 'attachment-tool-button attachment-tool-label'}
+          aria-label="上传音频"
+        >
+          <MeetingAssetIcon kind="audio" />
+          <input
+            type="file"
+            accept="audio/*,video/mp4,video/webm"
+            disabled={isTranscribing}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                onTranscribe(file, file.name, 'audio');
+                event.target.value = '';
+              }
+            }}
+          />
+        </label>
+      </Tooltip>
+      <Tooltip content="上传图片" placement="top">
+        <label className="attachment-tool-button attachment-tool-label" aria-label="上传图片">
+          <MeetingAssetIcon kind="image" />
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                onExtractAttachment(file);
+                event.target.value = '';
+              }
+            }}
+          />
+        </label>
+      </Tooltip>
+      <Tooltip content="上传文件" placement="top">
+        <label className="attachment-tool-button attachment-tool-label" aria-label="上传文件">
+          <MeetingAssetIcon kind="file" />
+          <input
+            type="file"
+            accept={meetingFileAccept}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                onExtractAttachment(file);
+                event.target.value = '';
+              }
+            }}
+          />
+        </label>
+      </Tooltip>
       {isTranscribing && (
         <span className="attachment-tool-status" aria-label="正在转写">
           <Loader2 className="spin" size={15} />
@@ -2466,28 +2592,30 @@ function MeetingAttachmentList({
             .join(' ')}
           key={attachment.id}
         >
-          <button
-            type="button"
-            className="meeting-attachment-select"
-            onClick={() => onToggleAttachment(attachment.id)}
-            aria-pressed={attachment.selected}
-            title={attachment.selected ? '已选择，点击取消' : '未选择，点击选择'}
-          >
-            <MeetingAssetIcon kind={attachment.kind} />
-            <span className="meeting-attachment-copy">
-              <strong>{attachment.fileName}</strong>
-              <span>{attachmentMeta(attachment)}</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            className="meeting-attachment-delete"
-            onClick={() => onDeleteAttachment(attachment.id)}
-            aria-label={`删除 ${attachment.fileName}`}
-            title="删除"
-          >
-            <Trash2 size={14} />
-          </button>
+          <Tooltip content={attachment.selected ? '已选择，点击取消' : '未选择，点击选择'} placement="top" style={{ width: '100%' }}>
+            <button
+              type="button"
+              className="meeting-attachment-select"
+              onClick={() => onToggleAttachment(attachment.id)}
+              aria-pressed={attachment.selected}
+            >
+              <MeetingAssetIcon kind={attachment.kind} />
+              <span className="meeting-attachment-copy">
+                <strong>{attachment.fileName}</strong>
+                <span>{attachmentMeta(attachment)}</span>
+              </span>
+            </button>
+          </Tooltip>
+          <Tooltip content="删除" placement="top">
+            <button
+              type="button"
+              className="meeting-attachment-delete"
+              onClick={() => onDeleteAttachment(attachment.id)}
+              aria-label={`删除 ${attachment.fileName}`}
+            >
+              <Trash2 size={14} />
+            </button>
+          </Tooltip>
         </div>
       ))}
     </div>
@@ -3088,16 +3216,18 @@ function UtilityMenu({
 
   return (
     <div className="utility-menu" ref={refEl}>
-      <button
-        type="button"
-        className="icon-button utility-trigger"
-        aria-label="打开设置菜单"
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        onClick={() => onOpenChange(!isOpen)}
-      >
-        <Settings2 size={18} />
-      </button>
+      <Tooltip content="AI 设置" placement="bottom">
+        <button
+          type="button"
+          className="icon-button utility-trigger"
+          aria-label="打开设置菜单"
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          onClick={() => onOpenChange(!isOpen)}
+        >
+          <Settings2 size={18} />
+        </button>
+      </Tooltip>
 
       {isOpen && (
         <div className="utility-popover" role="menu">
