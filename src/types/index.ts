@@ -130,6 +130,9 @@ export interface HealthResponse {
     model: string;
     configured: boolean;
   };
+  encryption?: {
+    available: boolean;
+  };
   database?: {
     ok: boolean;
     url: string;

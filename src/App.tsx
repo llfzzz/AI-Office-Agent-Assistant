@@ -35,15 +35,16 @@ import {
   runOfficeSkill,
   submitOfficeFeedback,
   transcribeAudio,
+  listAiConfigs,
+  createAiConfig,
+  updateAiConfig,
+  deleteAiConfig,
+  setDefaultAiConfig,
+  validateAiConfig,
 } from './api';
 import './App.css';
 import { Alert, Spinner, Tooltip } from './freejoy';
-import {
-  getStoredAiProviderSettings,
-  normalizeAiProviderSettings,
-  storeAiProviderSettings,
-  type AiProviderSettings,
-} from './aiProvider';
+import type { AiConfig, AiConfigInput } from './aiProvider';
 import { blankForm, blankFeedbackForm, blankPrdTask, blankWeeklyTask } from './data/constants';
 import { buildMeetingTranscript, createAttachmentId, inferUploadKind, protectedRecordingFileName } from './lib/format';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
@@ -105,9 +106,8 @@ function App() {
   const [lastAnalyzedMeetingInput, setLastAnalyzedMeetingInput] = useState<MeetingInput | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() =>
-    getStoredAiProviderSettings(),
-  );
+  const [aiConfigs, setAiConfigs] = useState<AiConfig[]>([]);
+  const [encryptionAvailable, setEncryptionAvailable] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
@@ -190,6 +190,17 @@ function App() {
     if (!session) {
       return;
     }
+
+    // Load the user's saved AI provider configs (masked) so the default is
+    // applied automatically after login. Keys never reach the client.
+    listAiConfigs()
+      .then((payload) => {
+        setAiConfigs(payload.configs);
+        setEncryptionAvailable(payload.encryption.available);
+      })
+      .catch(() => {
+        setAiConfigs([]);
+      });
 
     listKnowledgeDocuments()
       .then((payload) => {
@@ -293,10 +304,39 @@ function App() {
     };
   }, [meetings, officeFeedback.length, officeOutputs.length]);
 
-  function updateAiSettings(nextSettings: AiProviderSettings) {
-    const normalized = normalizeAiProviderSettings(nextSettings);
-    setAiSettings(normalized);
-    storeAiProviderSettings(normalized);
+  async function refreshAiConfigs() {
+    try {
+      const payload = await listAiConfigs();
+      setAiConfigs(payload.configs);
+      setEncryptionAvailable(payload.encryption.available);
+    } catch {
+      setAiConfigs([]);
+    }
+  }
+
+  async function handleCreateAiConfig(input: AiConfigInput) {
+    await createAiConfig(input);
+    await refreshAiConfigs();
+  }
+
+  async function handleUpdateAiConfig(id: string, input: AiConfigInput) {
+    await updateAiConfig(id, input);
+    await refreshAiConfigs();
+  }
+
+  async function handleDeleteAiConfig(id: string) {
+    await deleteAiConfig(id);
+    await refreshAiConfigs();
+  }
+
+  async function handleSetDefaultAiConfig(id: string) {
+    await setDefaultAiConfig(id);
+    await refreshAiConfigs();
+  }
+
+  async function handleValidateAiConfig(id: string) {
+    await validateAiConfig(id);
+    await refreshAiConfigs();
   }
 
   function showView(view: View) {
@@ -762,7 +802,7 @@ function App() {
                 refEl={utilityMenuRef}
                 health={health}
                 isOpen={utilityMenuOpen}
-                settings={aiSettings}
+                configs={aiConfigs}
                 userLabel={session.user.name || session.user.email}
                 onOpenChange={setUtilityMenuOpen}
                 onOpenSettings={() => setAiSettingsOpen(true)}
@@ -995,9 +1035,14 @@ function App() {
       <AiSettingsModal
         health={health}
         isOpen={aiSettingsOpen}
-        settings={aiSettings}
+        configs={aiConfigs}
+        encryptionAvailable={encryptionAvailable}
         onClose={() => setAiSettingsOpen(false)}
-        onSettingsChange={updateAiSettings}
+        onCreate={handleCreateAiConfig}
+        onUpdate={handleUpdateAiConfig}
+        onDelete={handleDeleteAiConfig}
+        onSetDefault={handleSetDefaultAiConfig}
+        onValidate={handleValidateAiConfig}
       />
     </div>
   );

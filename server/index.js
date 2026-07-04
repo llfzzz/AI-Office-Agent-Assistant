@@ -6,6 +6,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeMeeting, answerQuestion, planOfficeTask, runOfficeSkill, summarizeFeedback } from './analyzer.js';
 import { getProviderMeta } from './gemini.js';
+import { isEncryptionAvailable } from './crypto.js';
+import {
+  createAiConfig,
+  deleteAiConfig,
+  getActiveAiProvider,
+  listAiConfigs,
+  setDefaultAiConfig,
+  updateAiConfig,
+  validateAiConfig,
+} from './aiConfigStore.js';
 import { deleteKnowledgeDocument, listKnowledgeDocuments, saveKnowledgeDocument } from './rag.js';
 import {
   appendQuestionAnswer,
@@ -80,26 +90,12 @@ function authPayload(authData) {
   };
 }
 
-function readAiProvider(req) {
-  const mode = String(req.get('x-ai-provider-mode') || 'default').trim();
-
-  if (mode === 'custom') {
-    return {
-      mode: 'custom',
-      api_key: String(req.get('x-ai-api-key') || '').trim(),
-      base_url: String(req.get('x-ai-base-url') || '').trim(),
-      model: String(req.get('x-ai-model') || '').trim(),
-    };
-  }
-
-  return {};
-}
-
 app.get('/api/health', async (_req, res) => {
   const database = await checkPocketBase();
   res.json({
     ok: true,
     provider: getProviderMeta(),
+    encryption: { available: isEncryptionAvailable() },
     database,
   });
 });
@@ -176,7 +172,7 @@ app.post('/api/meetings/analyze', async (req, res) => {
       return;
     }
 
-    const analysis = await analyzeMeeting(req.body, context, readAiProvider(req));
+    const analysis = await analyzeMeeting(req.body, context, await getActiveAiProvider(context));
     res.json(analysis);
   } catch (error) {
     sendError(res, error);
@@ -191,12 +187,12 @@ app.post(
   }),
   async (req, res) => {
     try {
-      await requireAuth(req);
+      const context = await requireAuth(req);
       const result = await transcribeAudio(req.body, {
         mimeType: req.get('content-type'),
         fileName: req.get('x-file-name'),
         language: req.get('x-audio-language'),
-      }, readAiProvider(req));
+      }, await getActiveAiProvider(context));
       res.json(result);
     } catch (error) {
       sendError(res, error);
@@ -212,11 +208,11 @@ app.post(
   }),
   async (req, res) => {
     try {
-      await requireAuth(req);
+      const context = await requireAuth(req);
       const result = await extractMeetingFile(req.body, {
         mimeType: req.get('content-type'),
         fileName: req.get('x-file-name'),
-      }, readAiProvider(req));
+      }, await getActiveAiProvider(context));
       res.json(result);
     } catch (error) {
       sendError(res, error);
@@ -315,7 +311,7 @@ app.post('/api/meetings/:id/ask', async (req, res) => {
       return;
     }
 
-    const answer = await answerQuestion(meeting, question, readAiProvider(req));
+    const answer = await answerQuestion(meeting, question, await getActiveAiProvider(context));
     const qa = await appendQuestionAnswer(context, req.params.id, {
       question,
       ...answer,
@@ -336,7 +332,7 @@ app.post('/api/office/plan', async (req, res) => {
       return;
     }
 
-    const result = await planOfficeTask(req.body, context, readAiProvider(req));
+    const result = await planOfficeTask(req.body, context, await getActiveAiProvider(context));
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -352,7 +348,7 @@ app.post('/api/office/run', async (req, res) => {
       return;
     }
 
-    const result = await runOfficeSkill(req.body, context, readAiProvider(req));
+    const result = await runOfficeSkill(req.body, context, await getActiveAiProvider(context));
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -424,11 +420,74 @@ app.post('/api/office/outputs/:id/feedback', async (req, res) => {
     const feedbackSummary = await summarizeFeedback({
       output,
       feedback: req.body,
-    }, readAiProvider(req));
+    }, await getActiveAiProvider(context));
     const feedback = await saveOfficeFeedback(context, req.params.id, req.body, feedbackSummary);
     res.status(201).json({ feedback });
   } catch (error) {
     sendError(res, error);
+  }
+});
+
+// --- Per-user AI provider configurations ---------------------------------
+// Keys are encrypted at rest and never returned; responses carry masked hints
+// only. Ownership is enforced by PocketBase collection rules (user token).
+app.get('/api/ai-configs', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const configs = await listAiConfigs(context);
+    res.json({ configs, encryption: { available: isEncryptionAvailable() } });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/ai-configs', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const config = await createAiConfig(context, req.body || {});
+    res.status(201).json({ config });
+  } catch (error) {
+    sendError(res, error, 400);
+  }
+});
+
+app.patch('/api/ai-configs/:id', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const config = await updateAiConfig(context, req.params.id, req.body || {});
+    res.json({ config });
+  } catch (error) {
+    sendError(res, error, 400);
+  }
+});
+
+app.post('/api/ai-configs/:id/default', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const config = await setDefaultAiConfig(context, req.params.id);
+    res.json({ config });
+  } catch (error) {
+    sendError(res, error, 404);
+  }
+});
+
+app.post('/api/ai-configs/:id/validate', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const config = await validateAiConfig(context, req.params.id);
+    res.json({ config });
+  } catch (error) {
+    sendError(res, error, 400);
+  }
+});
+
+app.delete('/api/ai-configs/:id', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    await deleteAiConfig(context, req.params.id);
+    res.status(204).end();
+  } catch (error) {
+    sendError(res, error, 404);
   }
 });
 
@@ -460,4 +519,11 @@ app.listen(port, () => {
     }`,
   );
   console.log(`[config] PocketBase: ${pocketBaseUrl}`);
+  console.log(
+    `[config] AI config encryption: ${
+      isEncryptionAvailable()
+        ? 'enabled'
+        : 'disabled — set AI_CONFIG_SECRET (>=16 chars) to allow per-user custom keys'
+    }`,
+  );
 });

@@ -1,72 +1,43 @@
-export type AiProviderMode = 'default' | 'custom';
+// AI provider configuration is stored per-user in the database (encrypted at
+// rest) and resolved server-side. The frontend only ever handles masked,
+// non-secret projections — raw API keys are sent once on save and never
+// returned, stored in localStorage, or logged.
 
-export type AiProviderSettings = {
-  mode: AiProviderMode;
-  model: string;
-  baseUrl: string;
-  apiKey: string;
-};
-
-export const AI_PROVIDER_STORAGE_KEY = 'office-agent-gemini-provider-settings';
 export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 export const GEMINI_API_MODEL = 'gemini-3-flash-preview';
 
-export const defaultAiProviderSettings: AiProviderSettings = {
-  mode: 'default',
-  model: GEMINI_API_MODEL,
-  baseUrl: GEMINI_API_BASE_URL,
-  apiKey: '',
+export type AiValidationStatus = 'unknown' | 'valid' | 'invalid' | 'unreachable';
+
+/** Masked config as returned by the server. Never contains the API key. */
+export type AiConfig = {
+  id: string;
+  label: string;
+  provider: string;
+  base_url: string;
+  model: string;
+  /** Masked hint only, e.g. "sk-****abcd". */
+  api_key_hint: string;
+  is_default: boolean;
+  last_validation_status: AiValidationStatus;
+  last_validation_message: string;
+  last_validated_at: string;
+  created_at: string;
+  updated_at: string;
 };
 
-export function normalizeAiProviderSettings(
-  value: Partial<AiProviderSettings> | null | undefined,
-): AiProviderSettings {
-  const mode = value?.mode === 'custom' ? 'custom' : 'default';
+/** Payload for creating/updating a config. `api_key` is write-only. */
+export type AiConfigInput = {
+  label?: string;
+  provider?: string;
+  base_url?: string;
+  model?: string;
+  api_key?: string;
+  is_default?: boolean;
+};
 
-  return {
-    mode,
-    model: mode === 'custom' ? value?.model?.trim() || '' : GEMINI_API_MODEL,
-    baseUrl: mode === 'custom' ? value?.baseUrl?.trim() || '' : GEMINI_API_BASE_URL,
-    apiKey: mode === 'custom' ? value?.apiKey || '' : '',
-  };
-}
-
-export function getStoredAiProviderSettings() {
-  // Pure read: settings are always normalized on read, so there is no need to
-  // write back to localStorage here (this runs on every API request).
-  try {
-    const saved = localStorage.getItem(AI_PROVIDER_STORAGE_KEY);
-    return normalizeAiProviderSettings(
-      saved ? (JSON.parse(saved) as Partial<AiProviderSettings>) : null,
-    );
-  } catch {
-    return defaultAiProviderSettings;
-  }
-}
-
-export function hasStoredAiProviderSettings() {
-  try {
-    return Boolean(localStorage.getItem(AI_PROVIDER_STORAGE_KEY));
-  } catch {
-    return false;
-  }
-}
-
-export function storeAiProviderSettings(settings: AiProviderSettings) {
-  localStorage.setItem(
-    AI_PROVIDER_STORAGE_KEY,
-    JSON.stringify(normalizeAiProviderSettings(settings)),
-  );
-}
-
-export function aiProviderIsLocallyConfigured(settings: AiProviderSettings) {
-  if (settings.mode === 'default') {
-    return true;
-  }
-
-  return Boolean(
-    settings.baseUrl.trim() &&
-      settings.apiKey.trim() &&
-      settings.model.trim(),
-  );
-}
+export const validationStatusLabels: Record<AiValidationStatus, string> = {
+  unknown: '未验证',
+  valid: '验证通过',
+  invalid: '验证失败',
+  unreachable: '无法连接',
+};

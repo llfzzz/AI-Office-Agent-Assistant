@@ -14,30 +14,13 @@ import type {
   QAEntry,
   TranscriptionResponse,
 } from './types';
-import { aiProviderIsLocallyConfigured, getStoredAiProviderSettings } from './aiProvider';
+import type { AiConfig, AiConfigInput } from './aiProvider';
 
 const AUTH_TOKEN_KEY = 'meeting-memory-auth-token';
 const API_PREFIX = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
 
 function apiUrl(path: string) {
   return `${API_PREFIX}${path.startsWith('/') ? path : `/${path}`}`;
-}
-
-function getAiProviderHeaders(): Record<string, string> {
-  const settings = getStoredAiProviderSettings();
-
-  if (settings.mode === 'custom' && aiProviderIsLocallyConfigured(settings)) {
-    return {
-      'X-AI-Provider-Mode': 'custom',
-      'X-AI-Base-URL': settings.baseUrl,
-      'X-AI-API-Key': settings.apiKey,
-      'X-AI-Model': settings.model,
-    };
-  }
-
-  return {
-    'X-AI-Provider-Mode': 'default',
-  };
 }
 
 export function getStoredToken() {
@@ -52,23 +35,13 @@ export function clearStoredToken() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
-async function requestJson<T>(
-  url: string,
-  init?: RequestInit,
-  options: { aiProvider?: boolean } = {},
-): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const token = getStoredToken();
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
 
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  if (options.aiProvider) {
-    Object.entries(getAiProviderHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
   }
 
   const response = await fetch(url, {
@@ -110,7 +83,7 @@ export function analyzeMeeting(input: MeetingInput) {
   return requestJson<AnalysisResult>(apiUrl('/meetings/analyze'), {
     method: 'POST',
     body: JSON.stringify(input),
-  }, { aiProvider: true });
+  });
 }
 
 export function saveMeeting(input: MeetingInput, analysis: AnalysisResult) {
@@ -138,7 +111,7 @@ export function askMeeting(id: string, question: string) {
   return requestJson<{ qa: QAEntry }>(apiUrl(`/meetings/${id}/ask`), {
     method: 'POST',
     body: JSON.stringify({ question }),
-  }, { aiProvider: true });
+  });
 }
 
 export async function transcribeAudio(file: Blob, options: { fileName?: string; language?: string } = {}) {
@@ -147,7 +120,6 @@ export async function transcribeAudio(file: Blob, options: { fileName?: string; 
     method: 'POST',
     headers: {
       'Content-Type': file.type || 'application/octet-stream',
-      ...getAiProviderHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.fileName ? { 'X-File-Name': encodeURIComponent(options.fileName) } : {}),
       ...(options.language ? { 'X-Audio-Language': options.language } : {}),
@@ -169,7 +141,6 @@ export async function extractMeetingFile(file: Blob, options: { fileName?: strin
     method: 'POST',
     headers: {
       'Content-Type': file.type || 'application/octet-stream',
-      ...getAiProviderHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.fileName ? { 'X-File-Name': encodeURIComponent(options.fileName) } : {}),
     },
@@ -218,14 +189,14 @@ export function planOfficeTask(input: OfficeTaskInput) {
   return requestJson<Pick<OfficeRunResult, 'source' | 'provider' | 'warnings' | 'rag' | 'agent_plan'>>(apiUrl('/office/plan'), {
     method: 'POST',
     body: JSON.stringify(input),
-  }, { aiProvider: true });
+  });
 }
 
 export function runOfficeSkill(input: OfficeTaskInput) {
   return requestJson<OfficeRunResult>(apiUrl('/office/run'), {
     method: 'POST',
     body: JSON.stringify(input),
-  }, { aiProvider: true });
+  });
 }
 
 export function saveOfficeOutput(input: OfficeTaskInput, result: OfficeRunResult) {
@@ -247,9 +218,59 @@ export function submitOfficeFeedback(id: string, input: OfficeFeedbackInput) {
   return requestJson<{ feedback: OfficeFeedbackRecord }>(apiUrl(`/office/outputs/${id}/feedback`), {
     method: 'POST',
     body: JSON.stringify(input),
-  }, { aiProvider: true });
+  });
 }
 
 export function listOfficeFeedback() {
   return requestJson<{ feedback: OfficeFeedbackRecord[] }>(apiUrl('/office/feedback'));
+}
+
+// --- Per-user AI provider configurations ---------------------------------
+export function listAiConfigs() {
+  return requestJson<{ configs: AiConfig[]; encryption: { available: boolean } }>(apiUrl('/ai-configs'));
+}
+
+export function createAiConfig(input: AiConfigInput) {
+  return requestJson<{ config: AiConfig }>(apiUrl('/ai-configs'), {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAiConfig(id: string, input: AiConfigInput) {
+  return requestJson<{ config: AiConfig }>(apiUrl(`/ai-configs/${id}`), {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function setDefaultAiConfig(id: string) {
+  return requestJson<{ config: AiConfig }>(apiUrl(`/ai-configs/${id}/default`), {
+    method: 'POST',
+  });
+}
+
+export function validateAiConfig(id: string) {
+  return requestJson<{ config: AiConfig }>(apiUrl(`/ai-configs/${id}/validate`), {
+    method: 'POST',
+  });
+}
+
+export async function deleteAiConfig(id: string) {
+  const token = getStoredToken();
+  const headers = new Headers();
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(apiUrl(`/ai-configs/${id}`), {
+    method: 'DELETE',
+    headers,
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Request failed: ${response.status}`);
+  }
 }

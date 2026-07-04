@@ -87,6 +87,73 @@ logic (RAG uses a stubbed `context.pb`) so `npm test` runs with no server, datab
   acceptable for a local single-user prototype (logged server-side with the request id). If
   exposed publicly, sanitize 5xx messages. Deferred.
 
+## Per-user AI provider configurations (encrypted at rest)
+
+Each user stores their own AI provider configs in the database. Keys are
+encrypted server-side and **never** returned to the client, stored in
+localStorage, or logged. The default config is resolved server-side per request.
+
+### Data model (`pb_migrations/20260704000100_ai_provider_configs.js`)
+
+`ai_provider_configs` — one row per config, owned by `user`:
+`label`, `provider`, `base_url`, `model`, `api_key_cipher` (AES-256-GCM
+envelope, never exposed), `api_key_hint` (masked, e.g. `sk-****abcd`),
+`is_default`, `last_validation_status` (`unknown|valid|invalid|unreachable`),
+`last_validation_message` (no secrets), `last_validated_at`.
+
+`ai_config_audit` — append-only trail: `user`, `action`
+(`create|update|validate|set_default|delete`), `config_id`, `config_label`,
+`detail` (no secrets). `updateRule`/`deleteRule` are `null` → immutable via API.
+
+### Encryption (`server/crypto.js`)
+
+AES-256-GCM. Key = `scrypt(AI_CONFIG_SECRET, appSalt, 32)`, cached. Envelope
+`v1:<iv b64>:<authTag b64>:<ciphertext b64>` — random 12-byte IV per encryption,
+GCM tag detects tampering (decrypt throws). `AI_CONFIG_SECRET` (≥16 chars) lives
+only in server env (see `.env.example`); rotating it invalidates stored keys.
+`maskSecret` reveals only a short prefix + last 4 chars. When the secret is
+absent, saving custom keys is refused (503) and default/env Gemini still works.
+
+### API contract (all under `/api/ai-configs`, auth required)
+
+| Method | Path | Body / result |
+| --- | --- | --- |
+| GET | `/ai-configs` | → `{ configs: Masked[], encryption:{available} }` |
+| POST | `/ai-configs` | `{label,provider,base_url,model,api_key,is_default?}` → `{config}` (201) |
+| PATCH | `/ai-configs/:id` | same fields, `api_key` optional (blank = keep) → `{config}` |
+| POST | `/ai-configs/:id/default` | → `{config}` (sets default, unsets others) |
+| POST | `/ai-configs/:id/validate` | probes provider → `{config}` with status |
+| DELETE | `/ai-configs/:id` | → 204 (promotes another to default if needed) |
+
+Responses only ever carry the **masked** projection (`recordToMaskedConfig`) —
+never `api_key_cipher` or plaintext. AI calls (analyze/plan/run/ask/transcribe/
+extract/feedback) resolve the caller's default via `getActiveAiProvider(context)`,
+which decrypts in memory only. The old `x-ai-*` request headers are removed.
+
+### Authorization
+
+PocketBase collection rules scope every row to its owner
+(`@request.auth.id = user.id`); the server operates with the caller's token, so a
+foreign `:id` returns 404 on view/update/validate/set-default/delete. Verified:
+a second user gets 404 on all operations against another user's config and sees
+an empty list.
+
+### Migration steps
+
+`npm run pb:migrate` (or restart `./pocketbase serve`, which auto-applies
+`pb_migrations`). Set `AI_CONFIG_SECRET` in the server env before enabling custom
+keys. Down-migration drops both collections.
+
+### Verification results
+
+- Unit: `test/crypto.test.js` (round-trip, random IV, tamper/GCM failure, wrong
+  secret, masking, availability) + `test/aiConfigStore.test.js` (masked
+  projection strips cipher, validation-error classification, no secret echo) —
+  part of the 43-test suite (all green).
+- Live: created a config → response masked (`sk-****TKEY`), **grep of `pb_data`
+  found 0 occurrences of the raw key** and a `v1:` envelope present; validate on
+  a bad key → `invalid` with a safe message; cross-user access → 404.
+
 ## Known limitations / deferred work
 
 - **Playwright E2E**: not added. Full flows need a live PocketBase (auth) + optional Gemini

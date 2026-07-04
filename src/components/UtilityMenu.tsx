@@ -2,14 +2,14 @@ import { LogOut, Network, Settings2 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { Tooltip } from '../freejoy';
 import { SourceBadge } from './primitives';
-import { GEMINI_API_MODEL, aiProviderIsLocallyConfigured, type AiProviderSettings } from '../aiProvider';
+import { GEMINI_API_MODEL, type AiConfig } from '../aiProvider';
 import type { HealthResponse } from '../types';
 
 export function UtilityMenu({
   refEl,
   health,
   isOpen,
-  settings,
+  configs,
   userLabel,
   onOpenChange,
   onOpenSettings,
@@ -18,20 +18,17 @@ export function UtilityMenu({
   refEl: RefObject<HTMLDivElement | null>;
   health: HealthResponse | null;
   isOpen: boolean;
-  settings: AiProviderSettings;
+  configs: AiConfig[];
   userLabel: string;
   onOpenChange: (open: boolean) => void;
   onOpenSettings: () => void;
   onLogout: () => void;
 }) {
-  const configured =
-    settings.mode === 'custom'
-      ? aiProviderIsLocallyConfigured(settings)
-      : Boolean(health?.provider.configured);
-  const displayModel =
-    settings.mode === 'custom'
-      ? settings.model.trim() || '自定义模型'
-      : GEMINI_API_MODEL;
+  const defaultConfig = configs.find((config) => config.is_default) || null;
+  const configured = defaultConfig
+    ? defaultConfig.last_validation_status !== 'invalid'
+    : Boolean(health?.provider.configured);
+  const displayModel = defaultConfig ? defaultConfig.model || '自定义模型' : GEMINI_API_MODEL;
 
   return (
     <div className="utility-menu" ref={refEl}>
