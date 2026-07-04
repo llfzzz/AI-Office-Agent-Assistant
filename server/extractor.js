@@ -146,7 +146,7 @@ function xmlToText(value) {
 
 function cleanExtractedText(value) {
   const text = String(value || '')
-    .replace(/\u0000/g, '')
+    .replaceAll('\u0000', '')
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n[ \t]+/g, '\n')
@@ -305,42 +305,38 @@ async function extractImageText(buffer, meta, provider = {}) {
   const fileName = safeDecodeFileName(meta.fileName) || 'meeting-image';
   const filePart = await filePartFromBuffer(buffer, { fileName, mimeType }, { provider });
 
-  try {
-    const result = await generateContent(
-      [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `文件名：${fileName}\n请提取图片中的会议文字、截图、白板、PPT 或手写要点。保留决策、待办、负责人、时间、风险和问题。只输出简洁纯文本，不要输出 Markdown。`,
-            },
-            filePart,
-          ],
-        },
-      ],
+  const result = await generateContent(
+    [
       {
-        provider,
-        temperature: 0.1,
-        max_tokens: 1600,
-        timeout_ms: Number(process.env.GEMINI_EXTRACT_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 120000),
+        role: 'user',
+        parts: [
+          {
+            text: `文件名：${fileName}\n请提取图片中的会议文字、截图、白板、PPT 或手写要点。保留决策、待办、负责人、时间、风险和问题。只输出简洁纯文本，不要输出 Markdown。`,
+          },
+          filePart,
+        ],
       },
-    );
-    const text = cleanExtractedText(result.text);
+    ],
+    {
+      provider,
+      temperature: 0.1,
+      max_tokens: 1600,
+      timeout_ms: Number(process.env.GEMINI_EXTRACT_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 120000),
+    },
+  );
+  const text = cleanExtractedText(result.text);
 
-    if (!text) {
-      throw new Error('图片未提取到可用于会议纪要的内容');
-    }
-
-    return {
-      text,
-      kind: 'image',
-      model: result.model,
-      provider: result.provider,
-      warnings: [],
-    };
-  } catch (error) {
-    throw error;
+  if (!text) {
+    throw new Error('图片未提取到可用于会议纪要的内容');
   }
+
+  return {
+    text,
+    kind: 'image',
+    model: result.model,
+    provider: result.provider,
+    warnings: [],
+  };
 }
 
 export async function extractMeetingFile(buffer, meta = {}, provider = {}) {

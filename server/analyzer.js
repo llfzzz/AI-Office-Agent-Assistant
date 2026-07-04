@@ -36,7 +36,7 @@ export async function buildLinkedMeetingsContext(context, ids = []) {
     try {
       meeting = await getMeeting(context, id);
     } catch {
-      meeting = null;
+      // Ignore missing/deleted meetings; they simply drop out of the reference block.
     }
 
     if (!meeting) {

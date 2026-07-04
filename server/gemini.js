@@ -235,7 +235,7 @@ export async function generateContent(contents, options = {}) {
       });
     } catch (error) {
       if (error?.name === 'AbortError') {
-        throw new Error(`Gemini API request timed out after ${timeoutMs}ms`);
+        throw new Error(`Gemini API request timed out after ${timeoutMs}ms`, { cause: error });
       }
 
       if (attempt === retryAttempts) {
@@ -381,7 +381,7 @@ async function uploadGeminiFile(buffer, meta, provider, options = {}) {
     };
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new Error(`Gemini file upload timed out after ${timeoutMs}ms`);
+      throw new Error(`Gemini file upload timed out after ${timeoutMs}ms`, { cause: error });
     }
 
     throw error;

@@ -47,6 +47,8 @@ import {
 } from './aiProvider';
 import { blankForm, blankFeedbackForm, blankPrdTask, blankWeeklyTask } from './data/constants';
 import { buildMeetingTranscript, createAttachmentId, inferUploadKind, protectedRecordingFileName } from './lib/format';
+import { useDebouncedValue } from './hooks/useDebouncedValue';
+import { useDismiss } from './hooks/useDismiss';
 import {
   getActiveNavItem,
   getNavGroupIdForView,
@@ -183,25 +185,7 @@ function App() {
     };
   }, [activeView]);
 
-  useEffect(() => {
-    if (!utilityMenuOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (target instanceof Node && utilityMenuRef.current?.contains(target)) {
-        return;
-      }
-
-      setUtilityMenuOpen(false);
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-    };
-  }, [utilityMenuOpen]);
+  useDismiss(utilityMenuRef, utilityMenuOpen, () => setUtilityMenuOpen(false));
 
   useEffect(() => {
     if (!session) {
@@ -229,12 +213,15 @@ function App() {
       });
   }, [session]);
 
+  // Debounce the search box so typing doesn't refetch the whole library per keystroke.
+  const debouncedSearch = useDebouncedValue(search, 250);
+
   useEffect(() => {
     if (!session) return;
 
     let cancelled = false;
 
-    listMeetings({ search, type: typeFilter })
+    listMeetings({ search: debouncedSearch, type: typeFilter })
       .then((payload) => {
         if (cancelled) return;
         setMeetings(payload.meetings);
@@ -251,7 +238,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [search, session, typeFilter]);
+  }, [debouncedSearch, session, typeFilter]);
 
   useEffect(() => {
     if (!session || !['skills', 'outputs', 'feedback'].includes(activeView)) return;
