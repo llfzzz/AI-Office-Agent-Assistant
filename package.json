@@ -11,6 +11,8 @@
     "pb:serve": "./pocketbase serve",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "test": "node --test \"test/**/*.test.js\"",
     "preview": "vite preview",
     "start": "node server/index.js",
     "verify:gemini": "node scripts/verify-gemini-e2e.mjs",
