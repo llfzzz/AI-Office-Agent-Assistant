@@ -11,13 +11,15 @@ function formatOfficeInput(input) {
     .filter(([, value]) => value !== undefined && value !== null && String(value).trim())
     .map(([key, value]) => `- ${key}：${value}`)
     .join('\n');
+  const linkedMeetings = String(input.linked_meetings_context || '').trim();
 
   return `Skill：${input.skill_id || '未指定'}
 标题：${input.title || '未提及'}
 日期 / 周期：${input.date || '未提及'}
 补充字段：
 ${metadata || '未提及'}
-关联会议 ID：${(input.linked_meeting_ids || []).join(', ') || '未选择'}
+关联会议：
+${linkedMeetings || '未选择'}
 
 用户输入：
 ${input.content || '未提及'}`;

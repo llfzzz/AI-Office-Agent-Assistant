@@ -186,11 +186,15 @@ export async function getMeeting(context, id) {
 }
 
 export async function saveMeeting(context, input) {
+  // Treat '自动识别' (the default UI option) as "let the model decide": prefer the
+  // detected type from the analysis so the memory library gets a real category.
+  const chosenType = input.meeting_type && input.meeting_type !== '自动识别' ? input.meeting_type : '';
+  const detectedType = input.analysis?.structured_minutes?.meeting_type;
   const payload = {
     user: context.user.id,
     title: input.title || '未命名会议',
     date: input.date || new Date().toISOString().slice(0, 10),
-    meeting_type: input.meeting_type || input.analysis?.structured_minutes?.meeting_type || '自动识别',
+    meeting_type: chosenType || detectedType || '自动识别',
     participants: input.participants || '',
     raw_transcript: input.raw_transcript || '',
     analysis: input.analysis,
