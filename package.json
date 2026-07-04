@@ -1,5 +1,5 @@
 {
-  "name": "ai-meeting-memory-assistant",
+  "name": "ai-office-agent-assistant",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,6 +11,8 @@
     "pb:serve": "./pocketbase serve",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "test": "node --test \"test/**/*.test.js\"",
     "preview": "vite preview",
     "start": "node server/index.js",
     "verify:gemini": "node scripts/verify-gemini-e2e.mjs",

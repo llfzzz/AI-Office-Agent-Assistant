@@ -99,6 +99,19 @@ npm run build
 npm start
 ```
 
+## 测试与校验
+
+单元测试基于 Node 内置的 `node:test`，无需启动服务、数据库或配置 API key：
+
+```bash
+npm run typecheck   # tsc -b
+npm run lint        # 覆盖 src、server、scripts、test
+npm test            # server 纯函数单测（mock/gemini/rag/extractor/analyzer）
+npm run build       # 生产构建
+```
+
+端到端脚本 `npm run verify:gemini` 和 `npm run verify:memory` 需要本地 PocketBase 与真实 `GEMINI_API_KEY`。CI（`.github/workflows/ci.yml`）会自动执行 typecheck、lint、test 和 build。工程说明见 `AGENTS.md`。
+
 ## Prompt 链路
 
 服务端保留原会议 Prompt 链路，并新增办公 Agent Prompt 链路：

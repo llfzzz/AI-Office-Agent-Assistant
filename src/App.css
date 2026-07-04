@@ -84,6 +84,23 @@
   min-width: 0;
 }
 
+button.brand {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+}
+
+button.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .brand-mark {
   width: 42px;
   height: 42px;
@@ -92,7 +109,12 @@
   justify-content: center;
   border-radius: 12px;
   color: #ffffff;
-  background: var(--navy);
+  background: var(--accent);
+  transition: box-shadow var(--dur-base, 0.2s) var(--ease-out, ease);
+}
+
+button.brand:hover .brand-mark {
+  box-shadow: var(--shadow-md);
 }
 
 .brand strong,

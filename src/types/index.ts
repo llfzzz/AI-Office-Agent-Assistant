@@ -1,3 +1,7 @@
+// Domain/API types. App-local UI types (views, navigation, attachments) live in
+// ./ui and are re-exported here so consumers can `import type { … } from '../types'`.
+export * from './ui';
+
 export type SourceType = 'default-api' | 'demo-fallback';
 
 export interface MeetingInput {

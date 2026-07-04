@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,7 @@ import {
   saveOfficeFeedback,
   saveOfficeOutput,
 } from './storage.js';
-import { checkPocketBase, createPocketBaseClient, requireAuth } from './pocketbase.js';
+import { checkPocketBase, createPocketBaseClient, pocketBaseUrl, requireAuth } from './pocketbase.js';
 import { transcribeAudio } from './transcriber.js';
 import { extractMeetingFile } from './extractor.js';
 
@@ -34,6 +35,25 @@ app.use((req, _res, next) => {
 
   next();
 });
+
+// Lightweight request logging with a short correlation id. Logs method/path/status
+// only — never request bodies, tokens, or query values — so it stays privacy-safe.
+app.use((req, res, next) => {
+  const requestId = randomUUID().slice(0, 8);
+  res.locals.requestId = requestId;
+  // Capture the path up front: mounted routers rewrite req.url during dispatch,
+  // and req.path excludes the query string (which may carry user input).
+  const requestPath = req.path;
+  const startedAt = process.hrtime.bigint();
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    console.log(`[api] ${requestId} ${req.method} ${requestPath} ${res.statusCode} ${durationMs.toFixed(0)}ms`);
+  });
+
+  next();
+});
+
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10mb' }));
 
 function sendError(res, error, fallbackStatus = 500) {
@@ -43,8 +63,9 @@ function sendError(res, error, fallbackStatus = 500) {
     .join('; ');
   const message = error instanceof Error ? error.message : String(error);
   const responseMessage = details ? `${message}: ${details}` : message;
+  const requestId = res.locals?.requestId || '-';
 
-  console.error(`[api] ${status}: ${responseMessage}`);
+  console.error(`[api] ${requestId} ${status}: ${responseMessage}`);
   res.status(status).json({ error: responseMessage });
 }
 
@@ -411,6 +432,11 @@ app.post('/api/office/outputs/:id/feedback', async (req, res) => {
   }
 });
 
+// Unknown API routes return JSON (not the SPA HTML fallback below).
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `未找到接口：${req.method} ${req.path}` });
+});
+
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
   app.use((req, res, next) => {
@@ -424,5 +450,14 @@ if (existsSync(distPath)) {
 }
 
 app.listen(port, () => {
+  const provider = getProviderMeta();
   console.log(`AI Office Agent Assistant API running on http://localhost:${port}`);
+  console.log(
+    `[config] AI provider: ${
+      provider.configured
+        ? `configured (model ${provider.model})`
+        : 'demo mode — set GEMINI_API_KEY to enable live analysis'
+    }`,
+  );
+  console.log(`[config] PocketBase: ${pocketBaseUrl}`);
 });

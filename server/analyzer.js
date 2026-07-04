@@ -12,6 +12,63 @@ import {
 import { chatJson, getProviderMeta, hasProviderConfig } from './gemini.js';
 import { fallbackAnalysis, fallbackAnswer, fallbackFeedbackSummary, fallbackOfficePlan, fallbackOfficeRun } from './mock.js';
 import { retrieveRagContext } from './rag.js';
+import { getMeeting } from './storage.js';
+
+const MAX_LINKED_MEETINGS = 6;
+
+/**
+ * Resolve the meetings the user linked to an office task into a compact,
+ * model-readable reference block (title, date, one-line summary, decisions,
+ * action items). Tolerant of missing/deleted meetings; returns '' when none.
+ */
+export async function buildLinkedMeetingsContext(context, ids = []) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))].slice(0, MAX_LINKED_MEETINGS);
+
+  if (uniqueIds.length === 0) {
+    return '';
+  }
+
+  const blocks = [];
+
+  for (const id of uniqueIds) {
+    let meeting = null;
+
+    try {
+      meeting = await getMeeting(context, id);
+    } catch {
+      // Ignore missing/deleted meetings; they simply drop out of the reference block.
+    }
+
+    if (!meeting) {
+      continue;
+    }
+
+    const minutes = meeting.analysis?.structured_minutes || {};
+    const decisions = (minutes.decisions || []).map((item) => item.decision).filter(Boolean);
+    const actions = (minutes.action_items || [])
+      .map((item) => {
+        const owner = item.owner && item.owner !== '未提及' ? `（${item.owner}）` : '';
+        return item.task ? `${item.task}${owner}` : '';
+      })
+      .filter(Boolean);
+
+    const lines = [
+      `关联会议：${meeting.title || '未命名会议'}${meeting.date ? `（${meeting.date}）` : ''}`,
+      minutes.one_sentence_summary ? `一句话结论：${minutes.one_sentence_summary}` : '',
+      decisions.length ? `关键决策：${decisions.join('；')}` : '',
+      actions.length ? `待办事项：${actions.join('；')}` : '',
+    ].filter(Boolean);
+
+    blocks.push(lines.join('\n'));
+  }
+
+  return blocks.join('\n\n');
+}
+
+async function withLinkedMeetings(context, input) {
+  const linkedContext = await buildLinkedMeetingsContext(context, input.linked_meeting_ids);
+  return linkedContext ? { ...input, linked_meetings_context: linkedContext } : input;
+}
 
 function normalizeMinutes(minutes, input, understanding) {
   return {
@@ -36,6 +93,7 @@ function officeQuery(input) {
     input.title,
     input.date,
     input.content,
+    input.linked_meetings_context,
     ...Object.values(input.metadata || {}),
   ]
     .filter(Boolean)
@@ -129,7 +187,8 @@ export async function analyzeMeeting(input, context, provider = {}) {
 }
 
 export async function planOfficeTask(input, context, provider = {}) {
-  const ragContext = await retrieveRagContext(context, officeQuery(input), input.rag || {});
+  const enrichedInput = await withLinkedMeetings(context, input);
+  const ragContext = await retrieveRagContext(context, officeQuery(enrichedInput), enrichedInput.rag || {});
 
   if (!hasProviderConfig(provider)) {
     return {
@@ -137,12 +196,12 @@ export async function planOfficeTask(input, context, provider = {}) {
       provider: null,
       warnings: ['未配置 GEMINI_API_KEY，当前 Agent Plan 来自本地演示规划。'],
       rag: ragContext,
-      agent_plan: fallbackOfficePlan(input, ragContext),
+      agent_plan: fallbackOfficePlan(enrichedInput, ragContext),
     };
   }
 
   try {
-    const plan = await chatJson(buildOfficePlanMessages(input, ragContext), {
+    const plan = await chatJson(buildOfficePlanMessages(enrichedInput, ragContext), {
       provider,
       temperature: 0.1,
       max_tokens: 900,
@@ -153,7 +212,7 @@ export async function planOfficeTask(input, context, provider = {}) {
       provider: getProviderMeta(provider),
       warnings: [],
       rag: ragContext,
-      agent_plan: normalizeAgentPlan(plan, input, ragContext),
+      agent_plan: normalizeAgentPlan(plan, enrichedInput, ragContext),
     };
   } catch (error) {
     return {
@@ -161,13 +220,14 @@ export async function planOfficeTask(input, context, provider = {}) {
       provider: null,
       warnings: [error instanceof Error ? error.message : String(error)],
       rag: ragContext,
-      agent_plan: fallbackOfficePlan(input, ragContext, error instanceof Error ? error.message : String(error)),
+      agent_plan: fallbackOfficePlan(enrichedInput, ragContext, error instanceof Error ? error.message : String(error)),
     };
   }
 }
 
 export async function runOfficeSkill(input, context, provider = {}) {
-  const ragContext = await retrieveRagContext(context, officeQuery(input), input.rag || {});
+  const enrichedInput = await withLinkedMeetings(context, input);
+  const ragContext = await retrieveRagContext(context, officeQuery(enrichedInput), enrichedInput.rag || {});
 
   if (input.skill_id === 'meeting_minutes') {
     const meetingAnalysis = await analyzeMeeting(
@@ -207,20 +267,20 @@ export async function runOfficeSkill(input, context, provider = {}) {
   }
 
   if (!hasProviderConfig(provider)) {
-    return fallbackOfficeRun(input, ragContext);
+    return fallbackOfficeRun(enrichedInput, ragContext);
   }
 
   try {
-    const planPayload = await chatJson(buildOfficePlanMessages(input, ragContext), {
+    const planPayload = await chatJson(buildOfficePlanMessages(enrichedInput, ragContext), {
       provider,
       temperature: 0.1,
       max_tokens: 900,
     });
-    const agent_plan = normalizeAgentPlan(planPayload, input, ragContext);
+    const agent_plan = normalizeAgentPlan(planPayload, enrichedInput, ragContext);
     const messages =
       agent_plan.selected_skill === 'prd_review'
-        ? buildPrdReviewMessages(input, agent_plan, ragContext)
-        : buildWeeklyReportMessages(input, agent_plan, ragContext);
+        ? buildPrdReviewMessages(enrichedInput, agent_plan, ragContext)
+        : buildWeeklyReportMessages(enrichedInput, agent_plan, ragContext);
     const skill_output = await chatJson(messages, {
       provider,
       temperature: 0.15,
@@ -230,7 +290,7 @@ export async function runOfficeSkill(input, context, provider = {}) {
     const warnings = [];
 
     try {
-      const check = await chatJson(buildOfficeQualityCheckMessages(input, agent_plan, skill_output), {
+      const check = await chatJson(buildOfficeQualityCheckMessages(enrichedInput, agent_plan, skill_output), {
         provider,
         temperature: 0,
         max_tokens: 800,
@@ -256,7 +316,7 @@ export async function runOfficeSkill(input, context, provider = {}) {
       quality_check,
     };
   } catch (error) {
-    return fallbackOfficeRun(input, ragContext, error instanceof Error ? error.message : String(error));
+    return fallbackOfficeRun(enrichedInput, ragContext, error instanceof Error ? error.message : String(error));
   }
 }
 

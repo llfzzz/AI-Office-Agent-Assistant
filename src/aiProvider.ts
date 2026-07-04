@@ -32,17 +32,13 @@ export function normalizeAiProviderSettings(
 }
 
 export function getStoredAiProviderSettings() {
+  // Pure read: settings are always normalized on read, so there is no need to
+  // write back to localStorage here (this runs on every API request).
   try {
     const saved = localStorage.getItem(AI_PROVIDER_STORAGE_KEY);
-    const settings = normalizeAiProviderSettings(
+    return normalizeAiProviderSettings(
       saved ? (JSON.parse(saved) as Partial<AiProviderSettings>) : null,
     );
-
-    if (saved && settings.mode === 'default') {
-      storeAiProviderSettings(settings);
-    }
-
-    return settings;
   } catch {
     return defaultAiProviderSettings;
   }
