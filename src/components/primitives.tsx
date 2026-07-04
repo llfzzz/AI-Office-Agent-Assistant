@@ -33,7 +33,26 @@ export function AppLogo({ size = 22, strokeWidth = 2 }: { size?: number; strokeW
   );
 }
 
-export function Metric({ label, value }: { label: string; value: number }) {
+export function Metric({
+  label,
+  value,
+  onClick,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onClick?: () => void;
+  hint?: string;
+}) {
+  if (onClick) {
+    return (
+      <button type="button" className="metric metric-button" onClick={onClick} title={hint || `查看${label}`}>
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="metric">
       <strong>{value}</strong>

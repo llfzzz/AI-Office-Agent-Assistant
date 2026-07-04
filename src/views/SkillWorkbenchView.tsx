@@ -46,9 +46,9 @@ export function SkillWorkbenchView({
           <p>选择合适的技能，AI 智能体将为你高效处理办公任务。</p>
         </div>
         <div className="workspace-stats">
-          <Metric label="会议记忆" value={meetingCount} />
-          <Metric label="办公输出" value={outputCount} />
-          <Metric label="反馈记录" value={feedbackCount} />
+          <Metric label="会议记忆" value={meetingCount} onClick={() => onOpenView('library')} />
+          <Metric label="办公输出" value={outputCount} onClick={() => onOpenView('outputs')} />
+          <Metric label="反馈记录" value={feedbackCount} onClick={() => onOpenView('feedback')} />
         </div>
       </div>
 
@@ -68,6 +68,16 @@ export function SkillWorkbenchView({
                 key={skill.id}
                 className={`skill-card ${skill.tone}`}
                 style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+                role="button"
+                tabIndex={0}
+                aria-label={`进入${skill.title.replace(' Skill', '')}`}
+                onClick={() => onOpenView(skill.view)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpenView(skill.view);
+                  }
+                }}
               >
                 <div className="skill-card-top">
                   <span className="skill-icon">
@@ -75,14 +85,9 @@ export function SkillWorkbenchView({
                     {skill.id === 'weekly_report' && <ClipboardList size={20} />}
                     {skill.id === 'prd_review' && <ShieldCheck size={20} />}
                   </span>
-                  <button
-                    type="button"
-                    className="skill-card-arrow"
-                    aria-label={`进入${skill.title}`}
-                    onClick={() => onOpenView(skill.view)}
-                  >
+                  <span className="skill-card-arrow" aria-hidden="true">
                     <ChevronRight size={18} />
-                  </button>
+                  </span>
                 </div>
                 <div className="skill-card-copy">
                   <h2>{skill.title.replace(' Skill', '')}</h2>
@@ -109,10 +114,10 @@ export function SkillWorkbenchView({
           </div>
 
           <div className="workbench-metrics">
-            <Metric label="待办事项" value={actionCount} />
-            <Metric label="长期记忆" value={memoryCount} />
-            <Metric label="知识条目" value={knowledgeCount} />
-            <Metric label="反馈记录" value={feedbackCount} />
+            <Metric label="待办事项" value={actionCount} onClick={() => onOpenView('library')} />
+            <Metric label="长期记忆" value={memoryCount} onClick={() => onOpenView('library')} />
+            <Metric label="知识条目" value={knowledgeCount} onClick={() => onOpenView('rag')} />
+            <Metric label="反馈记录" value={feedbackCount} onClick={() => onOpenView('feedback')} />
           </div>
 
           <div className="quick-entry-grid">

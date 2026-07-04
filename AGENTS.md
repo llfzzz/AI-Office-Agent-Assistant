@@ -59,6 +59,7 @@ the UI marks this as "演示模式". `pb_migrations/` defines the PocketBase sch
 | A11y | Utility popover closed only on outside-click; `<html lang="en">` for Chinese content | Escape now closes it (`useDismiss`); `lang="zh-CN"` |
 | Navigation | After login there was no way back to the workbench "index" once you navigated away | Sidebar brand is now a button that returns to `skills` (the workbench) |
 | Polish | Static filler panels (hardcoded "Agent Plan" flow + "下一版建议" advice); off-brand purple favicon | Removed both panels; new topic-matched **AppLogo** (coral "AI document" glyph) shared by the favicon and in-app brand mark |
+| Interaction | Workbench skill cards / metric tiles weren't clickable (only the tiny arrow was); AI settings persisted per-keystroke with no explicit action; skill/output icon SVGs sat top-left in their tiles | Whole skill card is a keyboard-accessible button; metric tiles navigate to their view (`Metric onClick`); AI settings modal now edits a draft with an explicit **保存配置** button; centered the icon tiles |
 | Cleanup | Unused `src/assets/{hero,react,vite}`; stale `<title>` and package name | Removed; renamed to `AI Office Agent Assistant` / `ai-office-agent-assistant` |
 | Testing | No automated tests | `node:test` suite (28 tests) for fallbacks, Gemini JSON/provider, RAG ranking, extraction, linked-meeting builder |
 | CI | No quality gate | `.github/workflows/ci.yml`: typecheck → lint → test → build |
