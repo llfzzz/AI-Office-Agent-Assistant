@@ -1,15 +1,13 @@
 import { History, Loader2 } from 'lucide-react';
 import { skillName } from '../lib/office';
-import type { OfficeFeedbackRecord, OfficeOutputRecord } from '../types';
+import type { OfficeFeedbackRecord } from '../types';
 
 export function FeedbackIterationView({
   feedback,
-  outputs,
   loading,
   onOpenOutputs,
 }: {
   feedback: OfficeFeedbackRecord[];
-  outputs: OfficeOutputRecord[];
   loading: boolean;
   onOpenOutputs: () => void;
 }) {
@@ -70,25 +68,6 @@ export function FeedbackIterationView({
                 </article>
               ))}
               {feedback.length === 0 && <p className="muted-copy">保存并反馈办公输出后会自动归档。</p>}
-            </div>
-          </section>
-
-          <section className="panel iteration-panel wide">
-            <span className="eyebrow">下一版建议</span>
-            <h2>Prompt 与页面交互</h2>
-            <div className="suggestion-grid">
-              <div>
-                <strong>Prompt 调整</strong>
-                <p>强化“不编造、信息不足明确标记、计划不得写成完成”的质量约束。</p>
-              </div>
-              <div>
-                <strong>产品调整</strong>
-                <p>在周报和需求评审表单中继续增加缺口提示，并把 RAG、引用会议和反馈记录串联到输出详情。</p>
-              </div>
-              <div>
-                <strong>当前数据</strong>
-                <p>{outputs.length} 条办公输出，{feedback.length} 条反馈记录。</p>
-              </div>
             </div>
           </section>
         </div>

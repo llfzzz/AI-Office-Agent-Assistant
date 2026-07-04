@@ -7,7 +7,6 @@ import {
 } from 'react';
 import {
   AlertTriangle,
-  Brain,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -58,7 +57,7 @@ import {
   onlyOpenNavGroup,
 } from './app/navigation';
 import { AiSettingsModal } from './components/AiSettingsModal';
-import { Metric } from './components/primitives';
+import { AppLogo, Metric } from './components/primitives';
 import { UtilityMenu } from './components/UtilityMenu';
 import { AuthView } from './views/AuthView';
 import { ComposeView } from './views/ComposeView';
@@ -742,15 +741,21 @@ function App() {
           aria-label="应用导航"
         >
           <div className="sidebar-top">
-            <div className="brand">
+            <button
+              type="button"
+              className="brand"
+              onClick={() => showView('skills')}
+              aria-label="返回工作台"
+              title="返回工作台"
+            >
               <div className="brand-mark">
-                <Brain size={22} strokeWidth={2.2} />
+                <AppLogo size={22} strokeWidth={2.1} />
               </div>
               <div className="brand-copy">
                 <strong>Office Agent</strong>
                 <span>{session.user.name || session.user.email}</span>
               </div>
-            </div>
+            </button>
             <span className="active-view-label">{activeNavItem?.label || '工作台'}</span>
             <div className="sidebar-actions">
               <UtilityMenu
@@ -979,7 +984,6 @@ function App() {
         {activeView === 'feedback' && (
           <FeedbackIterationView
             feedback={officeFeedback}
-            outputs={officeOutputs}
             loading={officeListLoading}
             onOpenOutputs={() => showView('outputs')}
           />

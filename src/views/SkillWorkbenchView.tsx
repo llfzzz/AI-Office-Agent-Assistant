@@ -115,24 +115,6 @@ export function SkillWorkbenchView({
             <Metric label="反馈记录" value={feedbackCount} />
           </div>
 
-          <Card className="agent-flow-panel" padding="22px">
-            <div className="panel-heading compact">
-              <div>
-                <h2>Agent Plan（任务执行流程）</h2>
-                <p className="muted-copy">目标理解、资料检索、结构化生成和保存会按同一链路执行。</p>
-              </div>
-            </div>
-            <div className="flow-steps">
-              {['目标理解', '资料检索', '结构化生成', '保存结果'].map((step, index) => (
-                <div className={index < 3 ? 'flow-step complete' : 'flow-step pending'} key={step}>
-                  <span>{index + 1}</span>
-                  <strong>{step}</strong>
-                  <small>{index < 3 ? '已完成' : '待开始'}</small>
-                </div>
-              ))}
-            </div>
-          </Card>
-
           <div className="quick-entry-grid">
             <Button variant="secondary" iconLeft={<Mic size={17} />} onClick={() => onOpenView('compose')}>
               新建会议纪要

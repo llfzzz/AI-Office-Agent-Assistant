@@ -57,6 +57,8 @@ the UI marks this as "演示模式". `pb_migrations/` defines the PocketBase sch
 | Robustness | Unknown `/api/*` fell through to SPA HTML; no request logging; no startup summary | JSON 404 for unknown API routes; correlation-id request logging (no bodies/tokens); startup config summary |
 | Performance | Library search refetched the whole list on every keystroke; provider settings wrote to `localStorage` on every request | Debounced search (`useDebouncedValue`); `getStoredAiProviderSettings` is now a pure read |
 | A11y | Utility popover closed only on outside-click; `<html lang="en">` for Chinese content | Escape now closes it (`useDismiss`); `lang="zh-CN"` |
+| Navigation | After login there was no way back to the workbench "index" once you navigated away | Sidebar brand is now a button that returns to `skills` (the workbench) |
+| Polish | Static filler panels (hardcoded "Agent Plan" flow + "下一版建议" advice); off-brand purple favicon | Removed both panels; new topic-matched **AppLogo** (coral "AI document" glyph) shared by the favicon and in-app brand mark |
 | Cleanup | Unused `src/assets/{hero,react,vite}`; stale `<title>` and package name | Removed; renamed to `AI Office Agent Assistant` / `ai-office-agent-assistant` |
 | Testing | No automated tests | `node:test` suite (28 tests) for fallbacks, Gemini JSON/provider, RAG ranking, extraction, linked-meeting builder |
 | CI | No quality gate | `.github/workflows/ci.yml`: typecheck → lint → test → build |

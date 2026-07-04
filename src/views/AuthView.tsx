@@ -1,7 +1,7 @@
-import { AlertTriangle, Brain, Loader2, UserPlus, UserRound } from 'lucide-react';
+import { AlertTriangle, Loader2, UserPlus, UserRound } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { Alert, Button, Input, SegmentedControl } from '../freejoy';
-import { MemoryMap } from '../components/primitives';
+import { AppLogo, MemoryMap } from '../components/primitives';
 import type { AuthMode } from '../types';
 
 export function AuthView({
@@ -26,7 +26,7 @@ export function AuthView({
       <section className="auth-hero">
         <div className="brand">
           <div className="brand-mark">
-            <Brain size={22} strokeWidth={2.2} />
+            <AppLogo size={22} strokeWidth={2.1} />
           </div>
           <div>
             <strong>Office Agent</strong>
