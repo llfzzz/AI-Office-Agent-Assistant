@@ -7,12 +7,14 @@ export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1
 export const GEMINI_API_MODEL = 'gemini-3-flash-preview';
 
 export type AiValidationStatus = 'unknown' | 'valid' | 'invalid' | 'unreachable';
+export type AiApiMode = 'openai' | 'gemini';
 
 /** Masked config as returned by the server. Never contains the API key. */
 export type AiConfig = {
   id: string;
   label: string;
   provider: string;
+  api_mode: AiApiMode;
   base_url: string;
   model: string;
   /** Masked hint only, e.g. "sk-****abcd". */
@@ -29,10 +31,43 @@ export type AiConfig = {
 export type AiConfigInput = {
   label?: string;
   provider?: string;
+  api_mode?: AiApiMode;
   base_url?: string;
   model?: string;
   api_key?: string;
   is_default?: boolean;
+};
+
+// --- Provider catalog (built-in presets, from the backend) ----------------
+export type AiProviderModel = {
+  id: string;
+  label: string;
+  group?: string;
+  hint?: string;
+};
+
+export type AiProviderPreset = {
+  id: string;
+  label: string;
+  apiMode: AiApiMode;
+  baseUrl: string;
+  editableBaseUrl: boolean;
+  compatNote: string;
+  defaultModel: string;
+  models: AiProviderModel[];
+  apiModeOptions?: string[];
+};
+
+export type AiProviderCatalog = {
+  version: string;
+  providers: AiProviderPreset[];
+};
+
+export const modelGroupLabels: Record<string, string> = {
+  recommended: '推荐',
+  fast: '快速 / 低成本',
+  reasoning: '推理',
+  legacy: '兼容 / 旧版',
 };
 
 export const validationStatusLabels: Record<AiValidationStatus, string> = {

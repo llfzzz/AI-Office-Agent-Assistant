@@ -14,7 +14,7 @@ import type {
   QAEntry,
   TranscriptionResponse,
 } from './types';
-import type { AiConfig, AiConfigInput } from './aiProvider';
+import type { AiConfig, AiConfigInput, AiProviderCatalog } from './aiProvider';
 
 const AUTH_TOKEN_KEY = 'meeting-memory-auth-token';
 const API_PREFIX = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
@@ -226,6 +226,10 @@ export function listOfficeFeedback() {
 }
 
 // --- Per-user AI provider configurations ---------------------------------
+export function getAiProviderCatalog() {
+  return requestJson<AiProviderCatalog>(apiUrl('/ai-providers'));
+}
+
 export function listAiConfigs() {
   return requestJson<{ configs: AiConfig[]; encryption: { available: boolean } }>(apiUrl('/ai-configs'));
 }

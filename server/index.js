@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { analyzeMeeting, answerQuestion, planOfficeTask, runOfficeSkill, summarizeFeedback } from './analyzer.js';
 import { getProviderMeta } from './gemini.js';
 import { isEncryptionAvailable } from './crypto.js';
+import { publicCatalog } from './providers/catalog.js';
 import {
   createAiConfig,
   deleteAiConfig,
@@ -425,6 +426,17 @@ app.post('/api/office/outputs/:id/feedback', async (req, res) => {
     res.status(201).json({ feedback });
   } catch (error) {
     sendError(res, error);
+  }
+});
+
+// Built-in provider catalog (labels, official base URLs, curated models). No
+// secrets; requires auth for consistency. Source of truth lives in the backend.
+app.get('/api/ai-providers', async (req, res) => {
+  try {
+    await requireAuth(req);
+    res.json(publicCatalog());
+  } catch (error) {
+    sendError(res, error, 401);
   }
 });
 

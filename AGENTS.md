@@ -61,20 +61,23 @@ the UI marks this as "演示模式". `pb_migrations/` defines the PocketBase sch
 | Polish | Static filler panels (hardcoded "Agent Plan" flow + "下一版建议" advice); off-brand purple favicon | Removed both panels; new topic-matched **AppLogo** (coral "AI document" glyph) shared by the favicon and in-app brand mark |
 | Interaction | Workbench skill cards / metric tiles weren't clickable (only the tiny arrow was); AI settings persisted per-keystroke with no explicit action; skill/output icon SVGs sat top-left in their tiles | Whole skill card is a keyboard-accessible button; metric tiles navigate to their view (`Metric onClick`); AI settings modal now edits a draft with an explicit **保存配置** button; centered the icon tiles |
 | Cleanup | Unused `src/assets/{hero,react,vite}`; stale `<title>` and package name | Removed; renamed to `AI Office Agent Assistant` / `ai-office-agent-assistant` |
-| Testing | No automated tests | `node:test` suite (28 tests) for fallbacks, Gemini JSON/provider, RAG ranking, extraction, linked-meeting builder |
+| AI providers | Custom keys lived in `localStorage` and were sent as headers per request; only the Gemini API format worked | Per-user **encrypted** configs in the DB, resolved server-side; versioned provider catalog (DeepSeek/OpenAI/Anthropic/Gemini/Other) with official base URLs + curated models; OpenAI-compatible adapter alongside native Gemini (see the section below) |
+| Testing | No automated tests | `node:test` suite (56 tests): fallbacks, Gemini JSON/provider, RAG ranking, extraction, linked-meeting builder, crypto, provider catalog, config store |
 | CI | No quality gate | `.github/workflows/ci.yml`: typecheck → lint → test → build |
 
 ## Tests
 
-`test/` uses Node's built-in runner (zero deps): `mock.test.js`, `gemini.test.js`,
-`rag.test.js`, `extractor.test.js`, `analyzer.test.js`. They cover pure/near-pure server
-logic (RAG uses a stubbed `context.pb`) so `npm test` runs with no server, database, or API key.
+`test/` uses Node's built-in runner (zero deps): `mock`, `gemini`, `rag`,
+`extractor`, `analyzer`, `crypto`, `catalog`, `aiConfigStore`. They cover
+pure/near-pure server logic (RAG/store use stubs) so `npm test` runs with no
+server, database, or API key — **56 tests**.
 
-## Verification results (this branch)
+## Verification results
 
-- `npm run typecheck` ✅  · `npm run lint` ✅ (incl. server) · `npm test` ✅ 28/28 · `npm run build` ✅
-- Build output: JS 286.8 kB (gzip 87.3 kB), CSS 44.0 kB (gzip 9.0 kB)
-- Preview smoke test: login screen renders, login/register toggle works, no console errors
+- `npm run typecheck` ✅  · `npm run lint` ✅ (incl. server) · `npm test` ✅ 56/56 · `npm run build` ✅
+- Build output: JS ~293 kB (gzip ~89 kB), CSS ~47.6 kB (gzip ~9.7 kB)
+- Preview: register → workbench, AI settings modal (catalog-driven provider/model
+  selectors, masked keys, compact default Switch), no console errors
 
 ## Decisions & non-changes (intentional)
 
@@ -114,21 +117,52 @@ only in server env (see `.env.example`); rotating it invalidates stored keys.
 `maskSecret` reveals only a short prefix + last 4 chars. When the secret is
 absent, saving custom keys is refused (503) and default/env Gemini still works.
 
-### API contract (all under `/api/ai-configs`, auth required)
+### Provider catalog & request adapters (`server/providers/catalog.js`)
+
+A **versioned catalog** (`CATALOG_VERSION`) is the single source of truth for
+built-in providers — labels, official base URLs, `apiMode`, and curated models
+(grouped `recommended|fast|reasoning|legacy` with hints + a default). It is
+served to the frontend at `GET /api/ai-providers`, so the model lists live in one
+backend file and can be updated without shipping frontend changes. Add/rename/
+retire models by editing this file and bumping `CATALOG_VERSION`.
+
+Built-in presets (base URLs verified against official docs, 2026-07):
+
+| id | apiMode | Base URL | Notes |
+| --- | --- | --- | --- |
+| `deepseek` | openai | `https://api.deepseek.com` | OpenAI-compatible |
+| `openai` | openai | `https://api.openai.com/v1` | native OpenAI |
+| `anthropic` | openai | `https://api.anthropic.com/v1` | Anthropic's OpenAI-compat endpoint |
+| `gemini` | gemini | `https://generativelanguage.googleapis.com/v1beta` | native, multimodal |
+| `other` | openai/gemini | *(user-supplied)* | custom endpoint |
+
+`apiMode` selects the request adapter in `server/gemini.js`: `gemini` → native
+`:generateContent` (`X-goog-api-key`, supports file/vision); `openai` →
+`POST {base}/chat/completions` (`Authorization: Bearer`). For built-in providers
+the server **enforces** the catalog base URL + apiMode (a client-supplied
+`base_url` is ignored) so keys can't be redirected to an attacker endpoint. Only
+`other` accepts a custom URL, validated by `assertSafeCustomUrl` (HTTPS + no
+localhost/private hosts in production). File/image extraction and audio
+transcription remain Gemini-only; non-Gemini configs surface a clear error there.
+
+### API contract (auth required)
 
 | Method | Path | Body / result |
 | --- | --- | --- |
+| GET | `/ai-providers` | → catalog `{ version, providers[] }` (no secrets) |
 | GET | `/ai-configs` | → `{ configs: Masked[], encryption:{available} }` |
-| POST | `/ai-configs` | `{label,provider,base_url,model,api_key,is_default?}` → `{config}` (201) |
+| POST | `/ai-configs` | `{label,provider,model,api_key,is_default?, base_url?,api_mode?}` → `{config}` (201) |
 | PATCH | `/ai-configs/:id` | same fields, `api_key` optional (blank = keep) → `{config}` |
 | POST | `/ai-configs/:id/default` | → `{config}` (sets default, unsets others) |
 | POST | `/ai-configs/:id/validate` | probes provider → `{config}` with status |
 | DELETE | `/ai-configs/:id` | → 204 (promotes another to default if needed) |
 
-Responses only ever carry the **masked** projection (`recordToMaskedConfig`) —
-never `api_key_cipher` or plaintext. AI calls (analyze/plan/run/ask/transcribe/
-extract/feedback) resolve the caller's default via `getActiveAiProvider(context)`,
-which decrypts in memory only. The old `x-ai-*` request headers are removed.
+`base_url`/`api_mode` are honored only for `provider:'other'`; built-in providers
+derive them from the catalog. Responses only ever carry the **masked** projection
+(`recordToMaskedConfig`) — never `api_key_cipher` or plaintext. AI calls
+(analyze/plan/run/ask/transcribe/extract/feedback) resolve the caller's default
+via `getActiveAiProvider(context)`, which decrypts in memory only. The old
+`x-ai-*` request headers are removed.
 
 ### Authorization
 
@@ -141,18 +175,28 @@ an empty list.
 ### Migration steps
 
 `npm run pb:migrate` (or restart `./pocketbase serve`, which auto-applies
-`pb_migrations`). Set `AI_CONFIG_SECRET` in the server env before enabling custom
-keys. Down-migration drops both collections.
+`pb_migrations`): `…000100` creates both collections; `…000200` adds `api_mode`.
+Set `AI_CONFIG_SECRET` in the server env before enabling custom keys.
+Down-migrations reverse each step.
 
 ### Verification results
 
-- Unit: `test/crypto.test.js` (round-trip, random IV, tamper/GCM failure, wrong
-  secret, masking, availability) + `test/aiConfigStore.test.js` (masked
-  projection strips cipher, validation-error classification, no secret echo) —
-  part of the 43-test suite (all green).
-- Live: created a config → response masked (`sk-****TKEY`), **grep of `pb_data`
-  found 0 occurrences of the raw key** and a `v1:` envelope present; validate on
-  a bad key → `invalid` with a safe message; cross-user access → 404.
+- Unit (part of the **56**-test `node:test` suite, all green):
+  `test/crypto.test.js` (round-trip, random IV, tamper/GCM failure, wrong secret,
+  masking, availability); `test/catalog.test.js` (5 providers, official base
+  URLs + apiModes, default model ∈ list, only `other` editable, no secrets);
+  `test/aiConfigStore.test.js` (masked projection strips cipher, **preset base-URL
+  enforcement**, custom-URL HTTPS/private-host validation in production,
+  validation-error classification, no secret echo).
+- Live (PocketBase + API + preview): built-in preset creation stored the
+  **catalog** base URL and ignored a malicious client `base_url`; masked hint
+  `sk-****abcd`; **grep of `pb_data` found 0 occurrences of the raw key** with a
+  `v1:` envelope present; validate against real DeepSeek with a bad key →
+  `invalid`; cross-user view/update/validate/default/delete → 404; audit rows for
+  create/set_default/delete contained **no secret material**. UI: provider select
+  limited to the 5 presets, base URL auto-filled + hidden for built-ins, grouped
+  model selector, `other` reveals custom URL + advanced compat mode, compact FJ
+  default Switch.
 
 ## Known limitations / deferred work
 

@@ -36,6 +36,7 @@ import {
   submitOfficeFeedback,
   transcribeAudio,
   listAiConfigs,
+  getAiProviderCatalog,
   createAiConfig,
   updateAiConfig,
   deleteAiConfig,
@@ -44,7 +45,7 @@ import {
 } from './api';
 import './App.css';
 import { Alert, Spinner, Tooltip } from './freejoy';
-import type { AiConfig, AiConfigInput } from './aiProvider';
+import type { AiConfig, AiConfigInput, AiProviderCatalog } from './aiProvider';
 import { blankForm, blankFeedbackForm, blankPrdTask, blankWeeklyTask } from './data/constants';
 import { buildMeetingTranscript, createAttachmentId, inferUploadKind, protectedRecordingFileName } from './lib/format';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
@@ -107,6 +108,7 @@ function App() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [aiConfigs, setAiConfigs] = useState<AiConfig[]>([]);
+  const [aiCatalog, setAiCatalog] = useState<AiProviderCatalog | null>(null);
   const [encryptionAvailable, setEncryptionAvailable] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -201,6 +203,12 @@ function App() {
       .catch(() => {
         setAiConfigs([]);
       });
+
+    // Built-in provider catalog (labels/base URLs/models) — source of truth is
+    // the backend so it can be updated without shipping frontend changes.
+    getAiProviderCatalog()
+      .then(setAiCatalog)
+      .catch(() => setAiCatalog(null));
 
     listKnowledgeDocuments()
       .then((payload) => {
@@ -315,13 +323,15 @@ function App() {
   }
 
   async function handleCreateAiConfig(input: AiConfigInput) {
-    await createAiConfig(input);
+    const { config } = await createAiConfig(input);
     await refreshAiConfigs();
+    return config;
   }
 
   async function handleUpdateAiConfig(id: string, input: AiConfigInput) {
-    await updateAiConfig(id, input);
+    const { config } = await updateAiConfig(id, input);
     await refreshAiConfigs();
+    return config;
   }
 
   async function handleDeleteAiConfig(id: string) {
@@ -1035,6 +1045,7 @@ function App() {
       <AiSettingsModal
         health={health}
         isOpen={aiSettingsOpen}
+        catalog={aiCatalog}
         configs={aiConfigs}
         encryptionAvailable={encryptionAvailable}
         onClose={() => setAiSettingsOpen(false)}

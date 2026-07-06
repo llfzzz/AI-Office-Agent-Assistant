@@ -84,6 +84,9 @@ function resolveProviderConfig(provider = {}) {
     model: isCustom
       ? String(provider.model || '').trim()
       : String(process.env.GEMINI_MODEL || GEMINI_MODEL).trim(),
+    // Which request adapter to use. Built-in providers pass api_mode via the
+    // resolved config; the default/env provider is always native Gemini.
+    apiMode: isCustom ? (provider.api_mode === 'openai' ? 'openai' : 'gemini') : 'gemini',
     mode: isCustom ? 'custom' : 'default',
   };
 }
@@ -94,6 +97,7 @@ export function getProviderMeta(provider = {}) {
   return {
     base_url: config.baseUrl,
     model: config.model,
+    api_mode: config.apiMode,
     configured: Boolean(config.apiKey),
   };
 }
@@ -196,7 +200,7 @@ export async function generateContent(contents, options = {}) {
   const provider = resolveProviderConfig(options.provider || {});
 
   if (!provider.apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured');
+    throw new Error('AI API key is not configured');
   }
 
   if (!provider.baseUrl) {
@@ -205,6 +209,12 @@ export async function generateContent(contents, options = {}) {
 
   if (!provider.model) {
     throw new Error('AI model is not configured');
+  }
+
+  // Route OpenAI-compatible providers (DeepSeek, OpenAI, Anthropic-compat, and
+  // custom "other" endpoints) through the chat/completions adapter.
+  if (provider.apiMode === 'openai') {
+    return generateOpenAiChat(contents, options, provider);
   }
 
   const timeoutMs = Number(options.timeout_ms || process.env.GEMINI_TIMEOUT_MS || 90000);
@@ -274,6 +284,135 @@ export async function generateContent(contents, options = {}) {
   }
 
   throw new Error('Gemini API request failed after retry attempts');
+}
+
+function openAiEndpoint(baseUrl) {
+  return `${String(baseUrl).replace(/\/+$/, '')}/chat/completions`;
+}
+
+// Flatten Gemini-style contents (+ system instruction) into OpenAI chat messages.
+// Only text parts are carried over — multimodal file/image parts are Gemini-only.
+function geminiContentsToOpenAiMessages(contents, options) {
+  const messages = [];
+
+  if (options.system_instruction) {
+    messages.push({ role: 'system', content: String(options.system_instruction) });
+  }
+
+  for (const content of contents || []) {
+    const role = content?.role === 'model' ? 'assistant' : 'user';
+    const text = (content?.parts || [])
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+
+    if (text) {
+      messages.push({ role, content: text });
+    }
+  }
+
+  if (!messages.some((message) => message.role !== 'system')) {
+    messages.push({ role: 'user', content: '请根据系统指令生成结果。' });
+  }
+
+  return messages;
+}
+
+function extractOpenAiText(payload) {
+  const choice = payload?.choices?.[0];
+  const content = choice?.message?.content;
+  let text = '';
+
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content.map((part) => (typeof part === 'string' ? part : part?.text || '')).join('');
+  }
+
+  text = String(text || '').trim();
+
+  if (text) {
+    return text;
+  }
+
+  const finishReason = choice?.finish_reason;
+  throw new Error(`AI API returned an empty response${finishReason ? `; finish_reason=${finishReason}` : ''}`);
+}
+
+// OpenAI-compatible chat/completions adapter (DeepSeek, OpenAI, Anthropic-compat,
+// and custom "other" openai-mode endpoints). Uses Authorization: Bearer.
+async function generateOpenAiChat(contents, options, provider) {
+  const timeoutMs = Number(options.timeout_ms || process.env.AI_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 90000);
+  const retryAttempts = Number(options.retry_attempts || process.env.GEMINI_RETRY_ATTEMPTS || 4);
+  const body = {
+    model: provider.model,
+    messages: geminiContentsToOpenAiMessages(contents, options),
+    max_tokens: Number(options.max_tokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 2000),
+  };
+
+  if (typeof options.temperature === 'number') {
+    body.temperature = options.temperature;
+  }
+
+  const endpoint = openAiEndpoint(provider.baseUrl);
+
+  for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+
+    try {
+      response = await fetchGemini(endpoint, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${provider.apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`AI request timed out after ${timeoutMs}ms`, { cause: error });
+      }
+
+      if (attempt === retryAttempts) {
+        throw error;
+      }
+
+      await wait(Math.min(750 * (2 ** (attempt - 1)), 6000));
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      const detail = await response.text();
+
+      if (!isRetryableStatus(response.status) || attempt === retryAttempts) {
+        throw new Error(`AI API request failed (${response.status}): ${detail}`);
+      }
+
+      await wait(retryDelayMs(response, attempt));
+      continue;
+    }
+
+    const payload = await response.json();
+
+    return {
+      text: extractOpenAiText(payload),
+      payload,
+      provider: {
+        base_url: provider.baseUrl,
+        model: provider.model,
+        configured: true,
+      },
+      model: provider.model,
+    };
+  }
+
+  throw new Error('AI API request failed after retry attempts');
 }
 
 export async function chatJson(messages, options = {}) {

@@ -1,5 +1,6 @@
 import { decryptSecret, encryptSecret, isEncryptionAvailable, maskSecret } from './crypto.js';
 import { generateContent } from './gemini.js';
+import { getProviderPreset } from './providers/catalog.js';
 
 const COLLECTION = 'ai_provider_configs';
 const AUDIT = 'ai_config_audit';
@@ -10,6 +11,80 @@ function httpError(message, status) {
   const error = new Error(message);
   error.status = status;
   return error;
+}
+
+// Block localhost / private-network targets for custom endpoints in production.
+function isPrivateHost(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  return (
+    host === 'localhost' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
+}
+
+// Validate a user-supplied custom Base URL. Exported for unit testing.
+export function assertSafeCustomUrl(rawUrl) {
+  const value = String(rawUrl || '').trim();
+
+  if (!value) {
+    throw httpError('请填写 Base URL', 400);
+  }
+
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw httpError('Base URL 不是有效的地址', 400);
+  }
+
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw httpError('Base URL 仅支持 http/https', 400);
+  }
+  if (isProd && url.protocol !== 'https:') {
+    throw httpError('生产环境下 Base URL 必须使用 HTTPS', 400);
+  }
+  if (isProd && isPrivateHost(url.hostname)) {
+    throw httpError('生产环境下不允许使用本地或内网地址', 400);
+  }
+
+  return url.toString().replace(/\/+$/, '');
+}
+
+// Resolve provider/base_url/api_mode/model from input, enforcing catalog values
+// for built-in providers and validating custom URLs for "other".
+export function resolveProviderFields(input = {}, existing = {}) {
+  const providerId = String(input.provider ?? existing.provider ?? 'other').trim() || 'other';
+  const preset = getProviderPreset(providerId);
+  const model = String(input.model ?? existing.model ?? '').trim().slice(0, 160);
+
+  if (preset && !preset.editableBaseUrl) {
+    return {
+      provider: providerId,
+      base_url: preset.baseUrl,
+      api_mode: preset.apiMode,
+      model: model || preset.defaultModel || '',
+    };
+  }
+
+  const base_url = assertSafeCustomUrl(input.base_url ?? existing.base_url ?? '');
+  const apiMode = (input.api_mode ?? existing.api_mode) === 'gemini' ? 'gemini' : 'openai';
+
+  return {
+    provider: preset ? providerId : 'other',
+    base_url,
+    api_mode: apiMode,
+    model,
+  };
 }
 
 /**
@@ -24,7 +99,8 @@ export function recordToMaskedConfig(record) {
   return {
     id: record.id,
     label: record.label || '',
-    provider: record.provider || 'custom',
+    provider: record.provider || 'other',
+    api_mode: record.api_mode || 'gemini',
     base_url: record.base_url || '',
     model: record.model || '',
     api_key_hint: record.api_key_hint || '',
@@ -75,11 +151,18 @@ async function unsetOtherDefaults(context, keepId) {
 }
 
 function providerFromRecord(record) {
+  const preset = getProviderPreset(record.provider);
+  const apiMode = record.api_mode || preset?.apiMode || 'gemini';
+  const baseUrl = preset && !preset.editableBaseUrl
+    ? preset.baseUrl
+    : record.base_url || preset?.baseUrl || '';
   const api_key = record.api_key_cipher ? decryptSecret(record.api_key_cipher) : '';
+
   return {
     mode: 'custom',
+    api_mode: apiMode,
     api_key,
-    base_url: record.base_url || '',
+    base_url: baseUrl,
     model: record.model || '',
   };
 }
@@ -90,15 +173,6 @@ function requireEncryption() {
   }
 }
 
-function sanitizeMeta(input) {
-  return {
-    label: String(input.label || '').trim().slice(0, 80),
-    provider: String(input.provider || 'custom').trim().slice(0, 40) || 'custom',
-    base_url: String(input.base_url || '').trim().slice(0, 400),
-    model: String(input.model || '').trim().slice(0, 160),
-  };
-}
-
 export async function listAiConfigs(context) {
   const records = await context.pb.collection(COLLECTION).getFullList({ sort: '-is_default,-updated' });
   return records.map(recordToMaskedConfig);
@@ -107,11 +181,12 @@ export async function listAiConfigs(context) {
 export async function createAiConfig(context, input) {
   requireEncryption();
 
-  const meta = sanitizeMeta(input);
+  const label = String(input.label || '').trim().slice(0, 80) || '默认配置';
+  const fields = resolveProviderFields(input, {});
   const apiKey = typeof input.api_key === 'string' ? input.api_key.trim() : '';
 
-  if (!meta.base_url || !meta.model) {
-    throw httpError('请填写 Base URL 与模型名称', 400);
+  if (!fields.model) {
+    throw httpError('请选择或填写模型名称', 400);
   }
   if (!apiKey) {
     throw httpError('请填写 API Key', 400);
@@ -122,10 +197,11 @@ export async function createAiConfig(context, input) {
 
   const record = await context.pb.collection(COLLECTION).create({
     user: context.user.id,
-    label: meta.label || '默认配置',
-    provider: meta.provider,
-    base_url: meta.base_url,
-    model: meta.model,
+    label,
+    provider: fields.provider,
+    api_mode: fields.api_mode,
+    base_url: fields.base_url,
+    model: fields.model,
     api_key_cipher: encryptSecret(apiKey),
     api_key_hint: maskSecret(apiKey),
     is_default: shouldDefault,
@@ -138,20 +214,24 @@ export async function createAiConfig(context, input) {
     await unsetOtherDefaults(context, record.id);
   }
 
-  await writeAudit(context, 'create', record, `provider=${meta.provider} model=${meta.model}`);
+  await writeAudit(context, 'create', record, `provider=${fields.provider} mode=${fields.api_mode} model=${fields.model}`);
   return recordToMaskedConfig(record);
 }
 
 export async function updateAiConfig(context, id, input) {
   const existing = await getOwnedRecord(context, id);
-  const meta = sanitizeMeta({ ...existing, ...input });
+  const label = input.label !== undefined
+    ? String(input.label).trim().slice(0, 80) || existing.label || '默认配置'
+    : existing.label || '默认配置';
+  const fields = resolveProviderFields(input, existing);
   const apiKey = typeof input.api_key === 'string' ? input.api_key.trim() : '';
 
   const patch = {
-    label: meta.label || existing.label || '默认配置',
-    provider: meta.provider,
-    base_url: meta.base_url,
-    model: meta.model,
+    label,
+    provider: fields.provider,
+    api_mode: fields.api_mode,
+    base_url: fields.base_url,
+    model: fields.model,
   };
 
   let keyRotated = false;

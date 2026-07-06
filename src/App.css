@@ -557,6 +557,37 @@ button.brand:hover .brand-mark {
   cursor: pointer;
 }
 
+.ai-config-auto-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft, var(--paper-2));
+  color: var(--text-subtle, #8a887f);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ai-config-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-config-save-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-config-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .source-badge,
 .status {
   display: inline-flex;
