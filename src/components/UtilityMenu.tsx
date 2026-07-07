@@ -2,7 +2,7 @@ import { LogOut, Network, Settings2 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { Tooltip } from '../freejoy';
 import { SourceBadge } from './primitives';
-import { GEMINI_API_MODEL, type AiConfig } from '../aiProvider';
+import type { AiConfig } from '../aiProvider';
 import type { HealthResponse } from '../types';
 
 export function UtilityMenu({
@@ -28,7 +28,7 @@ export function UtilityMenu({
   const configured = defaultConfig
     ? defaultConfig.last_validation_status !== 'invalid'
     : Boolean(health?.provider.configured);
-  const displayModel = defaultConfig ? defaultConfig.model || '自定义模型' : GEMINI_API_MODEL;
+  const displayModel = defaultConfig ? defaultConfig.model || '自定义模型' : '未选择自定义配置';
 
   return (
     <div className="utility-menu" ref={refEl}>
@@ -51,7 +51,7 @@ export function UtilityMenu({
             <span className="eyebrow">当前账号</span>
             <strong>{userLabel}</strong>
             <SourceBadge configured={configured} />
-            <p>{configured ? displayModel : '未配置 API_KEY'}</p>
+            <p>{configured ? displayModel : '未配置 AI Provider（演示模式）'}</p>
           </div>
           <button
             type="button"

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 
 // Envelope: v1:<iv b64>:<authTag b64>:<ciphertext b64>. AES-256-GCM.
 const VERSION = 'v1';
@@ -104,16 +104,4 @@ export function maskSecret(plaintext) {
   const prefixMatch = value.match(/^[A-Za-z]{2,4}[-_]/);
   const prefix = prefixMatch ? prefixMatch[0] : '';
   return `${prefix}****${value.slice(-4)}`;
-}
-
-/** Constant-time string compare (used where equality must not leak timing). */
-export function safeEqual(a, b) {
-  const bufA = Buffer.from(String(a || ''), 'utf8');
-  const bufB = Buffer.from(String(b || ''), 'utf8');
-
-  if (bufA.length !== bufB.length) {
-    return false;
-  }
-
-  return timingSafeEqual(bufA, bufB);
 }

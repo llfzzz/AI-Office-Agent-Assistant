@@ -13,8 +13,6 @@ dist-ssr
 tmp
 *.local
 .env
-data/meetings.json
-data/knowledge.json
 .rollback/
 *.bak
 *.backup-*

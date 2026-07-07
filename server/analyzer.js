@@ -194,7 +194,7 @@ export async function planOfficeTask(input, context, provider = {}) {
     return {
       source: 'demo-fallback',
       provider: null,
-      warnings: ['未配置 GEMINI_API_KEY，当前 Agent Plan 来自本地演示规划。'],
+      warnings: ['未配置可用的自定义 AI 配置，当前 Agent Plan 来自本地演示规划。'],
       rag: ragContext,
       agent_plan: fallbackOfficePlan(enrichedInput, ragContext),
     };

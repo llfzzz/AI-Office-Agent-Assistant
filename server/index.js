@@ -39,8 +39,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '..', 'dist');
 const appBasePath = String(process.env.APP_BASE_PATH || '/office-agent').replace(/\/$/, '');
 
+// Serve transparently both behind a prefix-stripping reverse proxy and when
+// addressed directly with the subpath (the Vite build uses base "/office-agent/",
+// so direct requests arrive as /office-agent/api/... and /office-agent/assets/...).
 app.use((req, _res, next) => {
-  if (appBasePath && appBasePath !== '/' && req.url.startsWith(`${appBasePath}/api`)) {
+  if (
+    appBasePath &&
+    appBasePath !== '/' &&
+    (req.url === appBasePath || req.url.startsWith(`${appBasePath}/`) || req.url.startsWith(`${appBasePath}?`))
+  ) {
     req.url = req.url.slice(appBasePath.length) || '/';
   }
 
@@ -64,6 +71,51 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// Raw-body upload endpoints are registered before the JSON body parser:
+// a global express.json() would otherwise consume an uploaded .json meeting
+// file (parsing it into an object under the JSON body limit) before
+// express.raw() could capture the Buffer.
+app.post(
+  '/api/audio/transcribe',
+  express.raw({
+    type: ['audio/*', 'video/mp4', 'video/webm', 'application/octet-stream'],
+    limit: '25mb',
+  }),
+  async (req, res) => {
+    try {
+      const context = await requireAuth(req);
+      const result = await transcribeAudio(req.body, {
+        mimeType: req.get('content-type'),
+        fileName: req.get('x-file-name'),
+        language: req.get('x-audio-language'),
+      }, await getActiveAiProvider(context));
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+);
+
+app.post(
+  '/api/files/extract',
+  express.raw({
+    type: '*/*',
+    limit: '25mb',
+  }),
+  async (req, res) => {
+    try {
+      const context = await requireAuth(req);
+      const result = await extractMeetingFile(req.body, {
+        mimeType: req.get('content-type'),
+        fileName: req.get('x-file-name'),
+      }, await getActiveAiProvider(context));
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+);
 
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10mb' }));
 
@@ -179,47 +231,6 @@ app.post('/api/meetings/analyze', async (req, res) => {
     sendError(res, error);
   }
 });
-
-app.post(
-  '/api/audio/transcribe',
-  express.raw({
-    type: ['audio/*', 'video/mp4', 'video/webm', 'application/octet-stream'],
-    limit: '25mb',
-  }),
-  async (req, res) => {
-    try {
-      const context = await requireAuth(req);
-      const result = await transcribeAudio(req.body, {
-        mimeType: req.get('content-type'),
-        fileName: req.get('x-file-name'),
-        language: req.get('x-audio-language'),
-      }, await getActiveAiProvider(context));
-      res.json(result);
-    } catch (error) {
-      sendError(res, error);
-    }
-  },
-);
-
-app.post(
-  '/api/files/extract',
-  express.raw({
-    type: '*/*',
-    limit: '25mb',
-  }),
-  async (req, res) => {
-    try {
-      const context = await requireAuth(req);
-      const result = await extractMeetingFile(req.body, {
-        mimeType: req.get('content-type'),
-        fileName: req.get('x-file-name'),
-      }, await getActiveAiProvider(context));
-      res.json(result);
-    } catch (error) {
-      sendError(res, error);
-    }
-  },
-);
 
 app.get('/api/knowledge', async (req, res) => {
   try {
@@ -509,27 +520,48 @@ app.use('/api', (req, res) => {
 });
 
 if (existsSync(distPath)) {
-  app.use(express.static(distPath));
+  function setNoCacheHeaders(res) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+
+  app.use(express.static(distPath, {
+    setHeaders(res, filePath) {
+      const normalizedPath = filePath.split(path.sep).join('/');
+
+      if (normalizedPath.includes('/assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return;
+      }
+
+      if (normalizedPath.endsWith('/index.html')) {
+        setNoCacheHeaders(res);
+        return;
+      }
+
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    },
+  }));
   app.use((req, res, next) => {
     if (req.path.startsWith('/api')) {
       next();
       return;
     }
 
+    if (req.path.startsWith('/assets/') || path.extname(req.path)) {
+      res.status(404).end();
+      return;
+    }
+
+    setNoCacheHeaders(res);
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
 app.listen(port, () => {
-  const provider = getProviderMeta();
   console.log(`AI Office Agent Assistant API running on http://localhost:${port}`);
-  console.log(
-    `[config] AI provider: ${
-      provider.configured
-        ? `configured (model ${provider.model})`
-        : 'demo mode — set GEMINI_API_KEY to enable live analysis'
-    }`,
-  );
+  console.log('[config] AI provider: resolved per user from saved AI configs (demo mode without one)');
   console.log(`[config] PocketBase: ${pocketBaseUrl}`);
   console.log(
     `[config] AI config encryption: ${

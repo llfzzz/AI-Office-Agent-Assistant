@@ -317,14 +317,22 @@ export function classifyProviderError(error) {
 
 async function probeProvider(provider) {
   try {
+    // A small-but-realistic budget: thinking/reasoning models can spend their
+    // whole budget before emitting text, so 1 token would misclassify valid keys.
     await generateContent([{ role: 'user', parts: [{ text: 'ping' }] }], {
       provider,
       temperature: 0,
-      max_tokens: 1,
+      max_tokens: 128,
       timeout_ms: Number(process.env.AI_VALIDATE_TIMEOUT_MS || 15000),
     });
     return { status: 'valid', message: '连接成功' };
   } catch (error) {
+    // An "empty response" still means the HTTP round-trip succeeded (auth,
+    // base URL and model are all accepted) — treat it as a valid connection.
+    if (/returned an empty response/i.test(error instanceof Error ? error.message : '')) {
+      return { status: 'valid', message: '连接成功' };
+    }
+
     return classifyProviderError(error);
   }
 }
@@ -352,8 +360,8 @@ export async function validateAiConfig(context, id) {
 
 /**
  * Resolve the caller's active provider override for server-side AI calls.
- * Returns a decrypted provider object (kept in memory only) or {} to fall back
- * to the env/default provider. Never throws — any failure yields a safe default.
+ * Returns a decrypted provider object (kept in memory only) or {} when no
+ * per-user default exists. There is no env/default provider fallback.
  */
 export async function getActiveAiProvider(context) {
   try {

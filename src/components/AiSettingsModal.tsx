@@ -207,14 +207,14 @@ export function AiSettingsModal({
           {defaultConfig
             ? `${defaultConfig.label} · ${providerLabel(defaultConfig)} · ${defaultConfig.model}`
             : configured
-              ? '服务器默认 Gemini（由管理员配置）'
+              ? '服务器已配置 AI Provider'
               : '未配置 API Key（演示模式）'}
         </p>
       </div>
 
       {!encryptionAvailable && (
         <Alert tone="warn" icon={<AlertTriangle size={18} />}>
-          服务器未启用密钥加密（缺少 AI_CONFIG_SECRET），暂时无法保存自定义配置。默认 Gemini 仍可使用。
+          服务器未启用密钥加密（缺少 AI_CONFIG_SECRET），暂时无法保存或使用自定义配置。
         </Alert>
       )}
 
@@ -226,7 +226,7 @@ export function AiSettingsModal({
 
       <div className="ai-config-list" aria-label="已保存的 AI 配置">
         {configs.length === 0 ? (
-          <p className="muted-copy ai-config-empty">还没有自定义配置。未选择时使用服务器默认 Gemini。</p>
+          <p className="muted-copy ai-config-empty">还没有自定义配置。未选择时会进入演示模式。</p>
         ) : (
           configs.map((config) => (
             <div className={config.is_default ? 'ai-config-row is-default' : 'ai-config-row'} key={config.id}>

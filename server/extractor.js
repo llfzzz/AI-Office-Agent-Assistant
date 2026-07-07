@@ -1,7 +1,11 @@
 import { inflateRawSync } from 'node:zlib';
-import { filePartFromBuffer, generateContent } from './gemini.js';
+import { filePartFromBuffer, generateContent, hasProviderConfig } from './gemini.js';
 
-const MAX_EXTRACTED_CHARS = Number(process.env.MEETING_FILE_MAX_CHARS || process.env.GEMINI_FILE_MAX_CHARS || 24000);
+const MAX_EXTRACTED_CHARS = Number(process.env.MEETING_FILE_MAX_CHARS || process.env.AI_FILE_MAX_CHARS || 24000);
+// Decompression caps for office-document ZIP entries: block zip bombs (a 25 MB
+// upload can otherwise inflate to gigabytes and take the process down).
+const MAX_INFLATED_ENTRY_BYTES = 24 * 1024 * 1024;
+const MAX_INFLATED_TOTAL_BYTES = 64 * 1024 * 1024;
 
 const TEXT_MIME_TYPES = new Set([
   'application/json',
@@ -221,7 +225,7 @@ function findEndOfCentralDirectory(buffer) {
   return -1;
 }
 
-function extractZipEntries(buffer) {
+function extractZipEntries(buffer, matcher = () => true) {
   const entries = new Map();
   const eocdOffset = findEndOfCentralDirectory(buffer);
 
@@ -232,6 +236,7 @@ function extractZipEntries(buffer) {
   const entryCount = buffer.readUInt16LE(eocdOffset + 10);
   const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
   let offset = centralDirectoryOffset;
+  let inflatedTotal = 0;
 
   for (let index = 0; index < entryCount; index += 1) {
     if (buffer.readUInt32LE(offset) !== 0x02014b50) {
@@ -246,19 +251,33 @@ function extractZipEntries(buffer) {
     const localHeaderOffset = buffer.readUInt32LE(offset + 42);
     const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLength);
 
-    if (buffer.readUInt32LE(localHeaderOffset) === 0x04034b50) {
+    // Only decompress the entries the caller actually needs — combined with the
+    // output caps this keeps hostile archives from exhausting memory.
+    if (!fileName.endsWith('/') && matcher(fileName) && buffer.readUInt32LE(localHeaderOffset) === 0x04034b50) {
       const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
       const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
       const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
       const dataEnd = dataStart + compressedSize;
       const compressed = buffer.subarray(dataStart, dataEnd);
+      let content = null;
 
-      if (!fileName.endsWith('/')) {
-        if (compressionMethod === 0) {
-          entries.set(fileName, compressed);
-        } else if (compressionMethod === 8) {
-          entries.set(fileName, inflateRawSync(compressed));
+      if (compressionMethod === 0) {
+        content = compressed;
+      } else if (compressionMethod === 8) {
+        try {
+          content = inflateRawSync(compressed, { maxOutputLength: MAX_INFLATED_ENTRY_BYTES });
+        } catch {
+          throw withStatus(new Error('文档内容过大或已损坏，无法提取'), 400);
         }
+      }
+
+      if (content) {
+        inflatedTotal += content.byteLength;
+        if (inflatedTotal > MAX_INFLATED_TOTAL_BYTES) {
+          throw withStatus(new Error('文档内容过大或已损坏，无法提取'), 400);
+        }
+
+        entries.set(fileName, content);
       }
     }
 
@@ -269,9 +288,8 @@ function extractZipEntries(buffer) {
 }
 
 function extractZipXmlText(buffer, matcher) {
-  const entries = extractZipEntries(buffer);
+  const entries = extractZipEntries(buffer, matcher);
   const texts = [...entries.entries()]
-    .filter(([name]) => matcher(name))
     .sort(([left], [right]) => left.localeCompare(right, 'en', { numeric: true }))
     .map(([_name, content]) => xmlToText(content.toString('utf8')))
     .filter(Boolean);
@@ -301,6 +319,10 @@ function extractXlsxText(buffer) {
 }
 
 async function extractImageText(buffer, meta, provider = {}) {
+  if (!hasProviderConfig(provider)) {
+    throw withStatus(new Error('未配置可用的 AI Provider，无法提取图片内容。请先在 AI 设置中保存一个 Gemini 兼容配置并设为默认。'), 400);
+  }
+
   const mimeType = String(meta.mimeType || 'application/octet-stream').split(';')[0];
   const fileName = safeDecodeFileName(meta.fileName) || 'meeting-image';
   const filePart = await filePartFromBuffer(buffer, { fileName, mimeType }, { provider });
@@ -321,7 +343,7 @@ async function extractImageText(buffer, meta, provider = {}) {
       provider,
       temperature: 0.1,
       max_tokens: 1600,
-      timeout_ms: Number(process.env.GEMINI_EXTRACT_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 120000),
+      timeout_ms: Number(process.env.AI_EXTRACT_TIMEOUT_MS || process.env.AI_TIMEOUT_MS || 120000),
     },
   );
   const text = cleanExtractedText(result.text);

@@ -3,9 +3,6 @@
 // non-secret projections — raw API keys are sent once on save and never
 // returned, stored in localStorage, or logged.
 
-export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-export const GEMINI_API_MODEL = 'gemini-3-flash-preview';
-
 export type AiValidationStatus = 'unknown' | 'valid' | 'invalid' | 'unreachable';
 export type AiApiMode = 'openai' | 'gemini';
 

@@ -1,19 +1,13 @@
 import { jsonrepair } from 'jsonrepair';
 import { ProxyAgent } from 'undici';
 
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_UPLOAD_BASE_URL = 'https://generativelanguage.googleapis.com/upload/v1beta';
-const GEMINI_MODEL = 'gemini-3-flash-preview';
 const INLINE_FILE_LIMIT_BYTES = 18 * 1024 * 1024;
 let proxyAgent;
 let proxyAgentUrl = '';
 
-function getGeminiApiKey() {
-  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-}
-
 function getGeminiDispatcher() {
-  const proxyUrl = String(process.env.GEMINI_HTTPS_PROXY || '').trim();
+  const proxyUrl = String(process.env.AI_HTTPS_PROXY || '').trim();
 
   if (!proxyUrl) {
     return undefined;
@@ -52,16 +46,7 @@ function retryDelayMs(response, attempt) {
   return Math.min(750 * (2 ** (attempt - 1)), 6000);
 }
 
-export function normalizeBaseUrl(value) {
-  return String(value || GEMINI_BASE_URL)
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i, '')
-    .replace(/\/chat\/completions$/i, '')
-    .replace(/\/messages$/i, '') || GEMINI_BASE_URL;
-}
-
-function normalizeCustomBaseUrl(value) {
+export function normalizeCustomBaseUrl(value) {
   return String(value || '')
     .trim()
     .replace(/\/+$/, '')
@@ -75,19 +60,13 @@ function resolveProviderConfig(provider = {}) {
     Boolean(provider.api_key && provider.base_url && provider.model);
 
   return {
-    apiKey: isCustom
-      ? provider.api_key || ''
-      : provider.api_key || getGeminiApiKey(),
-    baseUrl: isCustom
-      ? normalizeCustomBaseUrl(provider.base_url)
-      : normalizeBaseUrl(process.env.GEMINI_BASE_URL || GEMINI_BASE_URL),
-    model: isCustom
-      ? String(provider.model || '').trim()
-      : String(process.env.GEMINI_MODEL || GEMINI_MODEL).trim(),
+    apiKey: isCustom ? provider.api_key || '' : '',
+    baseUrl: isCustom ? normalizeCustomBaseUrl(provider.base_url) : '',
+    model: isCustom ? String(provider.model || '').trim() : '',
     // Which request adapter to use. Built-in providers pass api_mode via the
-    // resolved config; the default/env provider is always native Gemini.
+    // resolved config. There is intentionally no env/default provider.
     apiMode: isCustom ? (provider.api_mode === 'openai' ? 'openai' : 'gemini') : 'gemini',
-    mode: isCustom ? 'custom' : 'default',
+    mode: isCustom ? 'custom' : 'none',
   };
 }
 
@@ -178,12 +157,12 @@ function isGemini3Model(model) {
 
 function generationConfig(options = {}, provider = {}) {
   const config = {
-    maxOutputTokens: Number(options.max_tokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 2000),
+    maxOutputTokens: Number(options.max_tokens || process.env.AI_MAX_OUTPUT_TOKENS || 2000),
   };
 
   if (isGemini3Model(provider.model)) {
     config.thinkingConfig = {
-      thinkingLevel: String(options.thinking_level || process.env.GEMINI_THINKING_LEVEL || 'low'),
+      thinkingLevel: String(options.thinking_level || process.env.AI_THINKING_LEVEL || 'low'),
     };
   } else {
     config.temperature = options.temperature ?? 0.2;
@@ -217,8 +196,8 @@ export async function generateContent(contents, options = {}) {
     return generateOpenAiChat(contents, options, provider);
   }
 
-  const timeoutMs = Number(options.timeout_ms || process.env.GEMINI_TIMEOUT_MS || 90000);
-  const retryAttempts = Number(options.retry_attempts || process.env.GEMINI_RETRY_ATTEMPTS || 4);
+  const timeoutMs = Number(options.timeout_ms || process.env.AI_TIMEOUT_MS || 90000);
+  const retryAttempts = Number(options.retry_attempts || process.env.AI_RETRY_ATTEMPTS || 4);
   const body = {
     contents,
     generationConfig: generationConfig(options, provider),
@@ -290,8 +269,18 @@ function openAiEndpoint(baseUrl) {
   return `${String(baseUrl).replace(/\/+$/, '')}/chat/completions`;
 }
 
+export const OPENAI_MULTIMODAL_ERROR =
+  '当前 AI 配置使用 OpenAI 兼容接口，不支持音频转写和图片提取；请改用 Gemini 兼容配置。';
+
+function multimodalNotSupportedError() {
+  const error = new Error(OPENAI_MULTIMODAL_ERROR);
+  error.status = 400;
+  return error;
+}
+
 // Flatten Gemini-style contents (+ system instruction) into OpenAI chat messages.
-// Only text parts are carried over — multimodal file/image parts are Gemini-only.
+// File/image parts are Gemini-only: dropping them silently would make the model
+// invent a "transcription", so they are rejected with a clear error instead.
 function geminiContentsToOpenAiMessages(contents, options) {
   const messages = [];
 
@@ -301,7 +290,13 @@ function geminiContentsToOpenAiMessages(contents, options) {
 
   for (const content of contents || []) {
     const role = content?.role === 'model' ? 'assistant' : 'user';
-    const text = (content?.parts || [])
+    const parts = content?.parts || [];
+
+    if (parts.some((part) => part && (part.inline_data || part.file_data))) {
+      throw multimodalNotSupportedError();
+    }
+
+    const text = parts
       .map((part) => (typeof part?.text === 'string' ? part.text : ''))
       .filter(Boolean)
       .join('\n')
@@ -317,6 +312,36 @@ function geminiContentsToOpenAiMessages(contents, options) {
   }
 
   return messages;
+}
+
+// OpenAI reasoning-family models (gpt-5*, o1/o3/o4…) reject `max_tokens` and
+// non-default `temperature` on chat/completions; they require
+// `max_completion_tokens` and run at the default temperature. Other
+// OpenAI-compatible providers (DeepSeek, Anthropic-compat, self-hosted) keep
+// the classic parameters.
+export function isOpenAiReasoningModel(model) {
+  return /^(?:gpt-5|o\d)(?:$|[.-])/i.test(String(model || '').trim());
+}
+
+/** Build the chat/completions request body. Exported for unit testing. */
+export function buildOpenAiRequestBody(contents, options, provider) {
+  const maxTokens = Number(options.max_tokens || process.env.AI_MAX_OUTPUT_TOKENS || 2000);
+  const body = {
+    model: provider.model,
+    messages: geminiContentsToOpenAiMessages(contents, options),
+  };
+
+  if (isOpenAiReasoningModel(provider.model)) {
+    body.max_completion_tokens = maxTokens;
+  } else {
+    body.max_tokens = maxTokens;
+
+    if (typeof options.temperature === 'number') {
+      body.temperature = options.temperature;
+    }
+  }
+
+  return body;
 }
 
 function extractOpenAiText(payload) {
@@ -343,18 +368,9 @@ function extractOpenAiText(payload) {
 // OpenAI-compatible chat/completions adapter (DeepSeek, OpenAI, Anthropic-compat,
 // and custom "other" openai-mode endpoints). Uses Authorization: Bearer.
 async function generateOpenAiChat(contents, options, provider) {
-  const timeoutMs = Number(options.timeout_ms || process.env.AI_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 90000);
-  const retryAttempts = Number(options.retry_attempts || process.env.GEMINI_RETRY_ATTEMPTS || 4);
-  const body = {
-    model: provider.model,
-    messages: geminiContentsToOpenAiMessages(contents, options),
-    max_tokens: Number(options.max_tokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 2000),
-  };
-
-  if (typeof options.temperature === 'number') {
-    body.temperature = options.temperature;
-  }
-
+  const timeoutMs = Number(options.timeout_ms || process.env.AI_TIMEOUT_MS || 90000);
+  const retryAttempts = Number(options.retry_attempts || process.env.AI_RETRY_ATTEMPTS || 4);
+  const body = buildOpenAiRequestBody(contents, options, provider);
   const endpoint = openAiEndpoint(provider.baseUrl);
 
   for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
@@ -429,6 +445,10 @@ export async function chatJson(messages, options = {}) {
 export async function filePartFromBuffer(buffer, meta = {}, options = {}) {
   const mimeType = String(meta.mimeType || 'application/octet-stream').split(';')[0].toLowerCase();
 
+  if (resolveProviderConfig(options.provider || {}).apiMode === 'openai') {
+    throw multimodalNotSupportedError();
+  }
+
   if (buffer.byteLength <= INLINE_FILE_LIMIT_BYTES) {
     return {
       inline_data: {
@@ -451,17 +471,18 @@ export async function filePartFromBuffer(buffer, meta = {}, options = {}) {
 
 async function uploadGeminiFile(buffer, meta, provider, options = {}) {
   if (!provider.apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured');
+    throw new Error('AI API key is not configured');
   }
 
-  const timeoutMs = Number(options.upload_timeout_ms || process.env.GEMINI_UPLOAD_TIMEOUT_MS || 120000);
+  const timeoutMs = Number(options.upload_timeout_ms || process.env.AI_UPLOAD_TIMEOUT_MS || 120000);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const mimeType = String(meta.mimeType || 'application/octet-stream').split(';')[0].toLowerCase();
   const displayName = String(meta.fileName || meta.displayName || 'meeting-file').slice(0, 120);
 
   try {
-    const startResponse = await fetchGemini(`${process.env.GEMINI_UPLOAD_BASE_URL || GEMINI_UPLOAD_BASE_URL}/files`, {
+    const uploadBaseUrl = process.env.AI_GEMINI_UPLOAD_BASE_URL || GEMINI_UPLOAD_BASE_URL;
+    const startResponse = await fetchGemini(`${uploadBaseUrl}/files`, {
       method: 'POST',
       signal: controller.signal,
       headers: {

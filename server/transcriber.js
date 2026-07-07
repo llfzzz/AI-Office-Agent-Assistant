@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import ffmpegPath from 'ffmpeg-static';
-import { filePartFromBuffer, generateContent } from './gemini.js';
+import { filePartFromBuffer, generateContent, hasProviderConfig } from './gemini.js';
 
 const SUPPORTED_AUDIO_TYPES = new Set([
   'audio/flac',
@@ -55,7 +55,7 @@ function shouldTranscode(mimeType, fileName) {
 
 function transcodeToFlac(buffer) {
   const binary = process.env.FFMPEG_PATH || ffmpegPath;
-  const timeoutMs = Number(process.env.GEMINI_AUDIO_CONVERT_TIMEOUT_MS || 60000);
+  const timeoutMs = Number(process.env.AI_AUDIO_CONVERT_TIMEOUT_MS || 60000);
 
   if (!binary) {
     throw new Error('浏览器录音转换需要 ffmpeg，但服务器没有找到可执行文件');
@@ -146,6 +146,12 @@ export async function transcribeAudio(buffer, meta = {}, provider = {}) {
     throw new Error('audio file is required');
   }
 
+  if (!hasProviderConfig(provider)) {
+    const error = new Error('未配置可用的 AI Provider，无法转写音频。请先在 AI 设置中保存一个 Gemini 兼容配置并设为默认。');
+    error.status = 400;
+    throw error;
+  }
+
   const mimeType = String(meta.mimeType || 'application/octet-stream').split(';')[0].toLowerCase();
   if (!SUPPORTED_AUDIO_TYPES.has(mimeType)) {
     throw new Error(`unsupported audio type: ${mimeType}`);
@@ -177,7 +183,7 @@ export async function transcribeAudio(buffer, meta = {}, provider = {}) {
       provider,
       temperature: 0,
       max_tokens: 5000,
-      timeout_ms: Number(process.env.GEMINI_AUDIO_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS || 120000),
+      timeout_ms: Number(process.env.AI_AUDIO_TIMEOUT_MS || process.env.AI_TIMEOUT_MS || 120000),
     },
   );
 

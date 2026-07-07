@@ -22,21 +22,14 @@
 - React + TypeScript + Vite
 - Express API server
 - PocketBase：本地数据库、用户认证、会议记忆和 RAG 资料库
-- Google Gemini API
+- 用户自定义 AI Provider（OpenAI 兼容 / Gemini 兼容）
 - Free Joy（FJ）设计系统 —— 暖纸白 + Joy Coral 珊瑚色，组件 vendored 在 `src/freejoy/`，适配组件在 `src/ui/`
 
 ## API 配置
 
-本项目默认按 Google Gemini API `generateContent` 调用方式实现，参考：
+本项目通过登录用户的“AI 连接配置”保存 Provider、Base URL、模型和 API key。API key 使用 `AI_CONFIG_SECRET` 加密后存入 PocketBase；服务端不再读取 `.env` 中的默认 Gemini key 作为兜底配置。
 
-- Quickstart：`https://ai.google.dev/gemini-api/docs/quickstart?hl=zh-cn`
-- Base URL：`https://generativelanguage.googleapis.com/v1beta`
-- Endpoint：`/models/{model}:generateContent`
-- Model：`gemini-3-flash-preview`（Google 文档中 Gemini 3 Flash 当前 REST 模型 ID）
-- Header：`X-goog-api-key: <GEMINI_API_KEY>`
-- 请求体包含 `contents`、`parts` 和 `generationConfig`
-
-复制 `.env.example` 为 `.env`，填入 Gemini key。仓库示例文件中 key 保持留空：
+复制 `.env.example` 为 `.env`，设置服务端口、PocketBase 地址和用于加密自定义 API key 的 `AI_CONFIG_SECRET`：
 
 ```bash
 cp .env.example .env
@@ -46,20 +39,11 @@ cp .env.example .env
 PORT=8788
 PB_URL=http://127.0.0.1:8090
 JSON_BODY_LIMIT=10mb
-GEMINI_API_KEY=
-GEMINI_HTTPS_PROXY=
-GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
-GEMINI_UPLOAD_BASE_URL=https://generativelanguage.googleapis.com/upload/v1beta
-GEMINI_MODEL=gemini-3-flash-preview
-GEMINI_MAX_OUTPUT_TOKENS=2000
-GEMINI_THINKING_LEVEL=low
-GEMINI_TIMEOUT_MS=90000
-GEMINI_RETRY_ATTEMPTS=4
+AI_CONFIG_SECRET=
+AI_VALIDATE_TIMEOUT_MS=15000
 ```
 
-未配置 `GEMINI_API_KEY` 时，服务端会降级为本地演示解析，前端会标记为“演示模式”。录音转写和图片提取也使用同一个 Gemini key；浏览器产生的 WebM 录音会通过 `ffmpeg-static` 转成 Gemini 支持的 FLAC 音频。纯文本、Markdown、CSV、JSON、HTML、XML、RTF、DOCX、ODT、PPTX 和 XLSX 会在服务端本地提取文本。
-
-如果服务器访问 Google API 必须经过代理，可设置 `GEMINI_HTTPS_PROXY`，例如 `http://127.0.0.1:7890`。该代理只用于 Gemini API 请求。
+未设置可用的用户默认 AI 配置时，服务端会降级为本地演示解析，前端会标记为“演示模式”。纯文本、Markdown、CSV、JSON、HTML、XML、RTF、DOCX、ODT、PPTX 和 XLSX 会在服务端本地提取文本；图片和音频类能力需要配置支持对应能力的 Provider。
 
 ## 运行
 
@@ -110,7 +94,7 @@ npm test            # server 纯函数单测（mock/gemini/rag/extractor/analyze
 npm run build       # 生产构建
 ```
 
-端到端脚本 `npm run verify:gemini` 和 `npm run verify:memory` 需要本地 PocketBase 与真实 `GEMINI_API_KEY`。CI（`.github/workflows/ci.yml`）会自动执行 typecheck、lint、test 和 build。工程说明见 `AGENTS.md`。
+端到端脚本 `npm run verify:memory` 只需要本地 PocketBase；`npm run verify:ai` 会注册临时账号、用 `VERIFY_AI_API_KEY`（可选 `VERIFY_AI_PROVIDER` / `VERIFY_AI_MODEL`）创建并验证一条 AI 配置后跑完整链路。CI（`.github/workflows/ci.yml`）会自动执行 typecheck、lint、test 和 build。工程说明见 `AGENTS.md`。
 
 ## Prompt 链路
 
