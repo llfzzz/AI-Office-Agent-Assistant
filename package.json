@@ -15,7 +15,7 @@
     "test": "node --test \"test/**/*.test.js\"",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "verify:gemini": "node scripts/verify-gemini-e2e.mjs",
+    "verify:ai": "node scripts/verify-ai-e2e.mjs",
     "verify:memory": "node scripts/verify-memory-save.mjs"
   },
   "dependencies": {

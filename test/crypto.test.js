@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { encryptSecret, decryptSecret, maskSecret, isEncryptionAvailable, safeEqual } from '../server/crypto.js';
+import { encryptSecret, decryptSecret, maskSecret, isEncryptionAvailable } from '../server/crypto.js';
 
 const SECRET = 'unit-test-ai-config-secret-please';
 
@@ -87,10 +87,4 @@ test('maskSecret reveals only a short prefix and last four', () => {
   assert.equal(maskSecret('AKIA1234567890ABCD').endsWith('ABCD'), true);
   // Never returns the full secret.
   assert.ok(!maskSecret('sk-abcdef1234567890TESTKEY').includes('abcdef'));
-});
-
-test('safeEqual compares without leaking on length mismatch', () => {
-  assert.equal(safeEqual('abc', 'abc'), true);
-  assert.equal(safeEqual('abc', 'abcd'), false);
-  assert.equal(safeEqual('abc', 'xyz'), false);
 });

@@ -16,7 +16,7 @@ design system (see `DESIGN.md`).
 | Lint | `npm run lint` | ESLint over `src`, `server`, `scripts`, `test` |
 | Unit tests | `npm test` | Node built-in `node:test`; no server/DB/key needed |
 | Build | `npm run build` | `tsc -b && vite build` |
-| E2E (manual) | `npm run verify:gemini` / `npm run verify:memory` | Require live PocketBase + a real `GEMINI_API_KEY` |
+| E2E (manual) | `npm run verify:ai` / `npm run verify:memory` | Require live PocketBase; `verify:ai` also needs `VERIFY_AI_API_KEY` (optional `VERIFY_AI_PROVIDER`/`VERIFY_AI_MODEL`) and creates a per-user AI config for a throwaway account |
 
 ## Architecture
 
@@ -34,8 +34,8 @@ page routing) that composes:
 | `src/views/` | One file per page (auth, home, workbench, weekly, prd, compose, library, detail, rag, outputs, feedback, docs) |
 | `src/ui/` | App adapters over Free Joy (`SemanticPanel`, `ScorePicker`) |
 | `src/freejoy/` | **Vendored** Free Joy component subset — do not refactor |
-| `src/api.ts` | Typed fetch client; injects auth token + AI-provider headers |
-| `src/aiProvider.ts` | Local (browser) AI provider settings, normalized on read |
+| `src/api.ts` | Typed fetch client; injects the auth token |
+| `src/aiProvider.ts` | AI provider config/catalog types + display labels (masked projections only — keys never reach the client) |
 
 **Backend (`server/`)** — Express API. `index.js` (routing, request logging, auth guards,
 SPA fallback) → `analyzer.js` (skill orchestration) → `prompts.js` (prompt builders),
@@ -43,8 +43,10 @@ SPA fallback) → `analyzer.js` (skill orchestration) → `prompts.js` (prompt b
 (keyword RAG), `storage.js` (PocketBase CRUD), `transcriber.js` / `extractor.js`
 (audio + file → text), `pocketbase.js` (client + `requireAuth`).
 
-Without `GEMINI_API_KEY` the server degrades to deterministic **demo-fallback** parsing;
-the UI marks this as "演示模式". `pb_migrations/` defines the PocketBase schema.
+AI calls resolve the caller's **per-user default AI config** (`getActiveAiProvider`);
+there is no env/server-wide key. Without a usable config the server degrades to
+deterministic **demo-fallback** parsing; the UI marks this as "演示模式".
+`pb_migrations/` defines the PocketBase schema.
 
 ## Review — issues found → fixes applied
 
@@ -65,26 +67,44 @@ the UI marks this as "演示模式". `pb_migrations/` defines the PocketBase sch
 | Testing | No automated tests | `node:test` suite (56 tests): fallbacks, Gemini JSON/provider, RAG ranking, extraction, linked-meeting builder, crypto, provider catalog, config store |
 | CI | No quality gate | `.github/workflows/ci.yml`: typecheck → lint → test → build |
 
+### Final audit pass (2026-07-08)
+
+| Area | Issue | Fix |
+| --- | --- | --- |
+| Correctness | OpenAI adapter sent `max_tokens` + `temperature` to gpt-5*/o-series, which reject both → every call 400'd into demo fallback | `buildOpenAiRequestBody` switches reasoning families to `max_completion_tokens` and omits `temperature` (verified against current OpenAI docs) |
+| Correctness | OpenAI-mode configs silently dropped audio/image parts → the model invented "transcripts" | Multimodal parts now raise a clear 400 (`filePartFromBuffer` + message flattening); transcriber/extractor also pre-check for a usable provider |
+| Correctness | Validate probe used `max_tokens: 1` → thinking models emit no text → valid keys marked invalid | 128-token probe budget; an HTTP-200 "empty response" counts as valid |
+| Correctness | Global `express.json` consumed `.json` meeting-file uploads before `express.raw` → 400 "file is required" | Raw-body routes registered before the JSON parser |
+| Correctness | Direct `:8788` serving broken (assets built under `/office-agent/` but only `/api` was prefix-rewritten) | Base-path rewrite now applies to all URLs; works with and without a prefix-stripping proxy |
+| Security | DOCX/PPTX/XLSX extractor inflated every ZIP entry unbounded → zip-bomb OOM DoS | Only matched entries are inflated, with per-entry (24 MB) + total (64 MB) `maxOutputLength` caps |
+| Stale | `verify-gemini-e2e.mjs` asserted the removed env provider and sent removed headers | Rewritten as `verify-ai-e2e.mjs` (`npm run verify:ai`): creates + validates a per-user config from `VERIFY_AI_*` env |
+| Cleanup | Dead `normalizeBaseUrl`/`safeEqual`, unused `public/icons.svg`, legacy `data/` dir + gitignore entries, stale GEMINI_* docs | Removed/updated; tests now cover the new adapter + zip caps (**64 tests**) |
+
 ## Tests
 
 `test/` uses Node's built-in runner (zero deps): `mock`, `gemini`, `rag`,
-`extractor`, `analyzer`, `crypto`, `catalog`, `aiConfigStore`. They cover
-pure/near-pure server logic (RAG/store use stubs) so `npm test` runs with no
-server, database, or API key — **56 tests**.
+`extractor`, `transcriber`, `analyzer`, `crypto`, `catalog`, `aiConfigStore`.
+They cover pure/near-pure server logic (RAG/store use stubs) so `npm test` runs
+with no server, database, or API key — **64 tests**.
 
 ## Verification results
 
-- `npm run typecheck` ✅  · `npm run lint` ✅ (incl. server) · `npm test` ✅ 56/56 · `npm run build` ✅
+- `npm run typecheck` ✅  · `npm run lint` ✅ (incl. server) · `npm test` ✅ 64/64 · `npm run build` ✅
 - Build output: JS ~293 kB (gzip ~89 kB), CSS ~47.6 kB (gzip ~9.7 kB)
-- Preview: register → workbench, AI settings modal (catalog-driven provider/model
-  selectors, masked keys, compact default Switch), no console errors
+- Live (2026-07-08, running server + PocketBase): 29/29 API checks — register/login,
+  demo analyze→save→list→detail→ask, knowledge+RAG office run→output→feedback,
+  `.json` file extraction, clean 400s for audio/image without a provider, AI-config
+  create/validate/delete with catalog base-URL enforcement, cross-user 404 isolation,
+  JSON 404 for unknown API routes, subpath + root static serving with correct cache
+  headers (direct `:8788` and via nginx), `npm run verify:memory` ✅
 
 ## Decisions & non-changes (intentional)
 
 - **`src/freejoy/**` vendored** — imported from the design MCP; not refactored. Its `Modal`
   has no focus trap (known limitation, deferred).
-- **`.env`** — gitignored local secrets, left untouched. Note the repo reads `GEMINI_*`
-  vars (see `.env.example`); a local `.env` using other names simply runs in demo mode.
+- **`.env`** — gitignored local secrets, left untouched. The server reads `AI_CONFIG_SECRET`
+  plus optional `AI_*` tuning vars (see `.env.example`); there is **no** server-wide AI key —
+  provider keys live per user, encrypted in PocketBase.
 - **`localStorage` auth-token key** — kept stable to avoid logging out existing users.
 - **`sendError` upstream passthrough** — surfaces PocketBase/Gemini messages to the client;
   acceptable for a local single-user prototype (logged server-side with the request id). If
@@ -115,7 +135,7 @@ AES-256-GCM. Key = `scrypt(AI_CONFIG_SECRET, appSalt, 32)`, cached. Envelope
 GCM tag detects tampering (decrypt throws). `AI_CONFIG_SECRET` (≥16 chars) lives
 only in server env (see `.env.example`); rotating it invalidates stored keys.
 `maskSecret` reveals only a short prefix + last 4 chars. When the secret is
-absent, saving custom keys is refused (503) and default/env Gemini still works.
+absent, saving/reading custom keys is refused (503) and AI calls run in demo mode.
 
 ### Provider catalog & request adapters (`server/providers/catalog.js`)
 
@@ -143,7 +163,15 @@ the server **enforces** the catalog base URL + apiMode (a client-supplied
 `base_url` is ignored) so keys can't be redirected to an attacker endpoint. Only
 `other` accepts a custom URL, validated by `assertSafeCustomUrl` (HTTPS + no
 localhost/private hosts in production). File/image extraction and audio
-transcription remain Gemini-only; non-Gemini configs surface a clear error there.
+transcription remain Gemini-only; OpenAI-mode configs are rejected with a clear
+error (never silently dropped, which would let the model invent a transcript).
+
+OpenAI reasoning families (`gpt-5*`, `o1/o3/o4…`) get `max_completion_tokens`
+and no `temperature` (they reject the classic params); DeepSeek/Anthropic-compat/
+custom endpoints keep `max_tokens` + `temperature` (`buildOpenAiRequestBody`).
+The validate probe runs with a 128-token budget and treats an HTTP-200
+"empty response" as a valid connection (thinking models may spend the whole
+budget before emitting text).
 
 ### API contract (auth required)
 
@@ -200,12 +228,16 @@ Down-migrations reverse each step.
 
 ## Known limitations / deferred work
 
-- **Playwright E2E**: not added. Full flows need a live PocketBase (auth) + optional Gemini
+- **Playwright E2E**: not added. Full flows need a live PocketBase (auth) + a real provider
   key that can't be provisioned/verified here; shipping unrunnable browser tests + a heavy
   dep was out of scope. To add later: run `./pocketbase serve` + `npm run dev`, then drive
   `http://localhost:5173/office-agent/` (register → compose → save → weekly with a linked
   meeting → outputs → feedback).
-- **Subpath production serving**: Vite rebases built asset URLs to `/office-agent/`, but
-  `express.static` serves at root — a reverse proxy is expected to map the subpath in
-  production (`start-production.sh`).
+- **Subpath serving**: the server strips `APP_BASE_PATH` (default `/office-agent`) from
+  *all* incoming URLs, so it works both directly on `:8788` and behind a prefix-stripping
+  reverse proxy (`start-production.sh` + nginx).
 - **RAG** is keyword-overlap only (no embeddings); fine for the prototype scale.
+- **Custom "other" endpoints**: `assertSafeCustomUrl` blocks private hosts by name in
+  production but does not resolve DNS — a public hostname pointing at an internal IP
+  (DNS rebinding) is not detected. Acceptable for a single-tenant prototype; revisit
+  before multi-tenant/public hosting.

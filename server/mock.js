@@ -128,7 +128,7 @@ export function fallbackAnalysis(input, warning) {
     has_action_items: actionSentences.length > 0,
     notes_for_extraction: warning
       ? `当前使用演示解析：${warning}`
-      : '当前使用演示解析，建议配置 GEMINI_API_KEY 运行真实 Prompt 链路。',
+      : '当前使用演示解析，建议配置自定义 AI Provider 运行真实 Prompt 链路。',
   };
 
   const structured_minutes = {
@@ -182,14 +182,14 @@ export function fallbackAnalysis(input, warning) {
     questionable_action_items: [],
     missing_risks_or_questions: [],
     revision_suggestions: warning
-      ? ['已降级为演示解析；配置 GEMINI_API_KEY 后可运行完整三段 Prompt 自检。']
+      ? ['已降级为演示解析；配置自定义 AI Provider 后可运行完整三段 Prompt 自检。']
       : [],
   };
 
   return {
     source: 'demo-fallback',
     provider: null,
-    warnings: warning ? [warning] : ['未配置 GEMINI_API_KEY，当前结果来自本地演示解析。'],
+    warnings: warning ? [warning] : ['未配置可用的自定义 AI 配置，当前结果来自本地演示解析。'],
     meeting_understanding,
     structured_minutes,
     quality_check,
@@ -234,7 +234,7 @@ export function fallbackAnswer(meeting, question, warning) {
     evidence,
     confidence,
     source: 'demo-fallback',
-    warnings: warning ? [warning] : ['未配置 GEMINI_API_KEY，当前回答来自本地会议记录匹配。'],
+    warnings: warning ? [warning] : ['未配置可用的自定义 AI 配置，当前回答来自本地会议记录匹配。'],
   };
 }
 
@@ -293,7 +293,7 @@ function normalizeOfficePlan(input, selectedSkill, ragContext, warning) {
         : ['摘要', '决策', '待办', '风险', '未解决问题', '长期记忆'],
     risk_notes: warning
       ? [`当前使用演示规划：${warning}`]
-      : ['演示模式只做关键词级拆解，建议配置 GEMINI_API_KEY 运行真实 Agent Plan。'],
+      : ['演示模式只做关键词级拆解，建议配置自定义 AI Provider 运行真实 Agent Plan。'],
   };
 }
 
@@ -389,7 +389,7 @@ export function fallbackOfficeRun(input, ragContext, warning) {
   return {
     source: 'demo-fallback',
     provider: null,
-    warnings: warning ? [warning] : ['未配置 GEMINI_API_KEY，当前结果来自本地演示解析。'],
+    warnings: warning ? [warning] : ['未配置可用的自定义 AI 配置，当前结果来自本地演示解析。'],
     rag: ragContext,
     agent_plan,
     skill_output,
@@ -402,7 +402,7 @@ export function fallbackOfficeRun(input, ragContext, warning) {
       copy_ready_score: agent_plan.missing_information.length > 0 ? 3 : 4,
       revision_suggestions: agent_plan.missing_information.length
         ? ['补充 Agent Plan 标记的缺失信息后再次生成。']
-        : ['演示模式已完成基础自检；配置 GEMINI_API_KEY 后可运行完整质量检查 Prompt。'],
+        : ['演示模式已完成基础自检；配置自定义 AI Provider 后可运行完整质量检查 Prompt。'],
     },
   };
 }
