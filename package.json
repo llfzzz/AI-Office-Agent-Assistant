@@ -16,7 +16,9 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "verify:ai": "node scripts/verify-ai-e2e.mjs",
-    "verify:memory": "node scripts/verify-memory-save.mjs"
+    "verify:memory": "node scripts/verify-memory-save.mjs",
+    "loadtest:install": "bash loadtest/install-k6.sh",
+    "loadtest:smoke": "loadtest/.bin/k6 run loadtest/scenarios/00_smoke.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

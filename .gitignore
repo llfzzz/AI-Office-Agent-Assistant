@@ -26,6 +26,12 @@ pocketbase*.zip
 local-pb_data-*.tgz
 ._pb_data
 
+# Load-test tooling: project-local k6 binary, generated fixtures, and run output
+loadtest/.bin/
+loadtest/fixtures/*.docx
+loadtest/results/
+loadtest/.state/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -13,6 +13,40 @@ function httpError(message, status) {
   return error;
 }
 
+// createAiConfig/updateAiConfig/setDefaultAiConfig/deleteAiConfig each read
+// then write the "at most one is_default per user" invariant as separate,
+// non-transactional PocketBase calls. Concurrent calls for the same user
+// (double-click, multiple tabs) interleave those reads/writes and can leave
+// zero or multiple configs marked default — load-tested: ~80% of bursts of 8
+// concurrent /default calls left zero defaults, which getActiveAiProvider()
+// then silently treats as "no config", degrading AI calls to demo mode with
+// no visible error. This process is a single Node instance (no clustering),
+// so a per-user in-process queue is sufficient to fully serialize these ops.
+const userLocks = new Map();
+
+// Exported for unit testing.
+export function withUserLock(userId, task) {
+  const key = String(userId);
+  const previousTail = userLocks.get(key) || Promise.resolve();
+  const result = previousTail.then(task, task);
+
+  userLocks.set(key, result);
+  // `result` legitimately rejects whenever `task` throws (e.g. a plain 404
+  // from a second concurrent delete) — that rejection is the caller's to
+  // handle via the returned promise. Chaining .finally() directly onto
+  // `result` for cleanup would create a second, unobserved rejected promise
+  // (the one .finally() itself returns), which Node treats as an unhandled
+  // rejection and crashes the process by default. Swallow it on a *copy* of
+  // the chain first so the cleanup's own promise can never reject.
+  result.catch(() => {}).finally(() => {
+    if (userLocks.get(key) === result) {
+      userLocks.delete(key);
+    }
+  });
+
+  return result;
+}
+
 // Block localhost / private-network targets for custom endpoints in production.
 function isPrivateHost(hostname) {
   const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -192,93 +226,101 @@ export async function createAiConfig(context, input) {
     throw httpError('请填写 API Key', 400);
   }
 
-  const existing = await context.pb.collection(COLLECTION).getFullList();
-  const shouldDefault = Boolean(input.is_default) || existing.length === 0;
+  return withUserLock(context.user.id, async () => {
+    const existing = await context.pb.collection(COLLECTION).getFullList();
+    const shouldDefault = Boolean(input.is_default) || existing.length === 0;
 
-  const record = await context.pb.collection(COLLECTION).create({
-    user: context.user.id,
-    label,
-    provider: fields.provider,
-    api_mode: fields.api_mode,
-    base_url: fields.base_url,
-    model: fields.model,
-    api_key_cipher: encryptSecret(apiKey),
-    api_key_hint: maskSecret(apiKey),
-    is_default: shouldDefault,
-    last_validation_status: 'unknown',
-    last_validation_message: '',
-    last_validated_at: '',
+    const record = await context.pb.collection(COLLECTION).create({
+      user: context.user.id,
+      label,
+      provider: fields.provider,
+      api_mode: fields.api_mode,
+      base_url: fields.base_url,
+      model: fields.model,
+      api_key_cipher: encryptSecret(apiKey),
+      api_key_hint: maskSecret(apiKey),
+      is_default: shouldDefault,
+      last_validation_status: 'unknown',
+      last_validation_message: '',
+      last_validated_at: '',
+    });
+
+    if (shouldDefault) {
+      await unsetOtherDefaults(context, record.id);
+    }
+
+    await writeAudit(context, 'create', record, `provider=${fields.provider} mode=${fields.api_mode} model=${fields.model}`);
+    return recordToMaskedConfig(record);
   });
-
-  if (shouldDefault) {
-    await unsetOtherDefaults(context, record.id);
-  }
-
-  await writeAudit(context, 'create', record, `provider=${fields.provider} mode=${fields.api_mode} model=${fields.model}`);
-  return recordToMaskedConfig(record);
 }
 
 export async function updateAiConfig(context, id, input) {
-  const existing = await getOwnedRecord(context, id);
-  const label = input.label !== undefined
-    ? String(input.label).trim().slice(0, 80) || existing.label || '默认配置'
-    : existing.label || '默认配置';
-  const fields = resolveProviderFields(input, existing);
-  const apiKey = typeof input.api_key === 'string' ? input.api_key.trim() : '';
+  return withUserLock(context.user.id, async () => {
+    const existing = await getOwnedRecord(context, id);
+    const label = input.label !== undefined
+      ? String(input.label).trim().slice(0, 80) || existing.label || '默认配置'
+      : existing.label || '默认配置';
+    const fields = resolveProviderFields(input, existing);
+    const apiKey = typeof input.api_key === 'string' ? input.api_key.trim() : '';
 
-  const patch = {
-    label,
-    provider: fields.provider,
-    api_mode: fields.api_mode,
-    base_url: fields.base_url,
-    model: fields.model,
-  };
+    const patch = {
+      label,
+      provider: fields.provider,
+      api_mode: fields.api_mode,
+      base_url: fields.base_url,
+      model: fields.model,
+    };
 
-  let keyRotated = false;
-  if (apiKey) {
-    requireEncryption();
-    patch.api_key_cipher = encryptSecret(apiKey);
-    patch.api_key_hint = maskSecret(apiKey);
-    // A changed key invalidates any prior validation result.
-    patch.last_validation_status = 'unknown';
-    patch.last_validation_message = '';
-    patch.last_validated_at = '';
-    keyRotated = true;
-  }
+    let keyRotated = false;
+    if (apiKey) {
+      requireEncryption();
+      patch.api_key_cipher = encryptSecret(apiKey);
+      patch.api_key_hint = maskSecret(apiKey);
+      // A changed key invalidates any prior validation result.
+      patch.last_validation_status = 'unknown';
+      patch.last_validation_message = '';
+      patch.last_validated_at = '';
+      keyRotated = true;
+    }
 
-  const record = await context.pb.collection(COLLECTION).update(id, patch);
+    const record = await context.pb.collection(COLLECTION).update(id, patch);
 
-  if (input.is_default === true && !record.is_default) {
-    await context.pb.collection(COLLECTION).update(id, { is_default: true });
-    await unsetOtherDefaults(context, id);
-  }
+    if (input.is_default === true && !record.is_default) {
+      await context.pb.collection(COLLECTION).update(id, { is_default: true });
+      await unsetOtherDefaults(context, id);
+    }
 
-  await writeAudit(context, 'update', record, keyRotated ? 'key rotated' : 'metadata updated');
-  return recordToMaskedConfig(await getOwnedRecord(context, id));
+    await writeAudit(context, 'update', record, keyRotated ? 'key rotated' : 'metadata updated');
+    return recordToMaskedConfig(await getOwnedRecord(context, id));
+  });
 }
 
 export async function setDefaultAiConfig(context, id) {
-  const existing = await getOwnedRecord(context, id);
-  await context.pb.collection(COLLECTION).update(id, { is_default: true });
-  await unsetOtherDefaults(context, id);
-  await writeAudit(context, 'set_default', existing);
-  return recordToMaskedConfig(await getOwnedRecord(context, id));
+  return withUserLock(context.user.id, async () => {
+    const existing = await getOwnedRecord(context, id);
+    await context.pb.collection(COLLECTION).update(id, { is_default: true });
+    await unsetOtherDefaults(context, id);
+    await writeAudit(context, 'set_default', existing);
+    return recordToMaskedConfig(await getOwnedRecord(context, id));
+  });
 }
 
 export async function deleteAiConfig(context, id) {
-  const existing = await getOwnedRecord(context, id);
-  await context.pb.collection(COLLECTION).delete(id);
-  await writeAudit(context, 'delete', existing);
+  return withUserLock(context.user.id, async () => {
+    const existing = await getOwnedRecord(context, id);
+    await context.pb.collection(COLLECTION).delete(id);
+    await writeAudit(context, 'delete', existing);
 
-  // If we removed the default, promote the most recently updated remaining one.
-  if (existing.is_default) {
-    const rest = await context.pb.collection(COLLECTION).getFullList({ sort: '-updated' });
-    if (rest[0]) {
-      await context.pb.collection(COLLECTION).update(rest[0].id, { is_default: true });
+    // If we removed the default, promote the most recently updated remaining one.
+    if (existing.is_default) {
+      const rest = await context.pb.collection(COLLECTION).getFullList({ sort: '-updated' });
+      if (rest[0]) {
+        await context.pb.collection(COLLECTION).update(rest[0].id, { is_default: true });
+      }
     }
-  }
 
-  return { id };
+    return { id };
+  });
 }
 
 /**

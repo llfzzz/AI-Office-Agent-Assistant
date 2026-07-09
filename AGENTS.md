@@ -17,6 +17,7 @@ design system (see `DESIGN.md`).
 | Unit tests | `npm test` | Node built-in `node:test`; no server/DB/key needed |
 | Build | `npm run build` | `tsc -b && vite build` |
 | E2E (manual) | `npm run verify:ai` / `npm run verify:memory` | Require live PocketBase; `verify:ai` also needs `VERIFY_AI_API_KEY` (optional `VERIFY_AI_PROVIDER`/`VERIFY_AI_MODEL`) and creates a per-user AI config for a throwaway account |
+| Load testing | `npm run loadtest:install` then `loadtest/.bin/k6 run loadtest/scenarios/<name>.js` | Needs live server + PocketBase, demo mode (no AI key). See `loadtest/README.md`; results in `loadtest/REPORT.md` |
 
 ## Architecture
 
@@ -80,16 +81,30 @@ deterministic **demo-fallback** parsing; the UI marks this as "演示模式".
 | Stale | `verify-gemini-e2e.mjs` asserted the removed env provider and sent removed headers | Rewritten as `verify-ai-e2e.mjs` (`npm run verify:ai`): creates + validates a per-user config from `VERIFY_AI_*` env |
 | Cleanup | Dead `normalizeBaseUrl`/`safeEqual`, unused `public/icons.svg`, legacy `data/` dir + gitignore entries, stale GEMINI_* docs | Removed/updated; tests now cover the new adapter + zip caps (**64 tests**) |
 
+### Load testing pass (2026-07-09)
+
+Re-verified typecheck/lint/test/build + a full live smoke flow (all green, matching this doc's prior claims), then load-tested with k6 across 8 scenarios chosen from this codebase's actual architecture (see `loadtest/REPORT.md` for full methodology, numbers, and the box's shared-host constraints).
+
+| Area | Issue | Fix |
+| --- | --- | --- |
+| Correctness / Data consistency | Concurrent `POST /api/ai-configs/:id/default` (also create/update/delete with `is_default`) raced on the non-transactional `unsetOtherDefaults` + update sequence — load-tested: **4/5 bursts of 8 concurrent requests left zero configs marked default**, not ">1" as hypothesized. `getActiveAiProvider` then silently returns `{}`, degrading a user's AI calls to demo mode with no visible error | `withUserLock` (`server/aiConfigStore.js`): an in-process, per-user async mutex serializing `createAiConfig`/`updateAiConfig`/`setDefaultAiConfig`/`deleteAiConfig` (single Node process, no clustering, so this fully closes the race without a DB transaction) |
+| Reliability | The first fix attempt (`result.finally(cleanup)`) crashed the entire Node process on any concurrently-rejecting request (e.g. a legitimate 404 on a second concurrent delete) — an unhandled promise rejection, confirmed via `journalctl`: `Main process exited, code=exited, status=1/FAILURE`. Found *by the same load test*, before the fix was considered done | Swallow the rejection on a copy of the chain before attaching cleanup: `result.catch(() => {}).finally(cleanup)`. Regression-tested (`test/aiConfigStore.test.js`): one test deliberately confirmed to fail with `failureType: 'unhandledRejection'` against the pre-fix code |
+| Security (documented, not fixed) | No rate limiting or lockout anywhere: 20 wrong-password login attempts and repeated `validate` probes (real third-party call) never hit a 429 or backoff | Documented in `loadtest/REPORT.md` risk list; deferred — no throttling middleware added this pass |
+| Performance (documented, not fixed) | `server/rag.js`/`server/storage.js` list/RAG endpoints use unpaginated `getFullList()` and re-tokenize the whole knowledge base per call — measured avg latency ~3× (121ms→361ms) and throughput -66% (40.4→13.6 req/s) going from 10 to 200 seeded documents | Documented; acceptable at this project's stated prototype scale, flagged for before scaling further |
+| Reliability (documented, not fixed) | PocketBase is not supervised by systemd (started manually) — confirmed it stayed up for the entire test session, but has no auto-restart if it does crash | Documented; recovery command in `loadtest/README.md` |
+| Verified, no fix needed | Zip-bomb decompression caps (24MB/entry, 64MB/total, added in the prior audit pass) hold correctly **under concurrency**, not just single-request; a concurrent health-check canary showed no event-loop-blocking impact; process memory returned to baseline after each burst (no leak) | N/A — confirms the prior pass's fix is robust |
+| Tests | Coverage gap: no test exercised `aiConfigStore`'s CRUD/locking paths (only pure helpers were tested) | Exported `withUserLock` for testing (matches this file's existing "exported for unit testing" convention); 2 new tests pin its serialization + no-unhandled-rejection contract (**66 tests**) |
+
 ## Tests
 
 `test/` uses Node's built-in runner (zero deps): `mock`, `gemini`, `rag`,
 `extractor`, `transcriber`, `analyzer`, `crypto`, `catalog`, `aiConfigStore`.
 They cover pure/near-pure server logic (RAG/store use stubs) so `npm test` runs
-with no server, database, or API key — **64 tests**.
+with no server, database, or API key — **66 tests**.
 
 ## Verification results
 
-- `npm run typecheck` ✅  · `npm run lint` ✅ (incl. server) · `npm test` ✅ 64/64 · `npm run build` ✅
+- `npm run typecheck` ✅  · `npm run lint` ✅ (incl. server) · `npm test` ✅ 66/66 · `npm run build` ✅
 - Build output: JS ~293 kB (gzip ~89 kB), CSS ~47.6 kB (gzip ~9.7 kB)
 - Live (2026-07-08, running server + PocketBase): 29/29 API checks — register/login,
   demo analyze→save→list→detail→ask, knowledge+RAG office run→output→feedback,
@@ -97,6 +112,10 @@ with no server, database, or API key — **64 tests**.
   create/validate/delete with catalog base-URL enforcement, cross-user 404 isolation,
   JSON 404 for unknown API routes, subpath + root static serving with correct cache
   headers (direct `:8788` and via nginx), `npm run verify:memory` ✅
+- Load testing (2026-07-09): 8 k6 scenarios, 100% pass after the concurrency fix
+  above (was a 20% burst-failure rate before); zero process crashes, zero systemd
+  restarts, zero impact on 14 co-located unrelated services. Full results in
+  `loadtest/REPORT.md`.
 
 ## Decisions & non-changes (intentional)
 
@@ -241,3 +260,15 @@ Down-migrations reverse each step.
   production but does not resolve DNS — a public hostname pointing at an internal IP
   (DNS rebinding) is not detected. Acceptable for a single-tenant prototype; revisit
   before multi-tenant/public hosting.
+- **No rate limiting**: login, registration, and the AI-config `validate` probe have no
+  throttling at the app layer (confirmed empirically by load testing, not just code
+  review — see `loadtest/REPORT.md`). Acceptable for a local prototype; add before
+  public hosting.
+- **List/RAG endpoints are unpaginated**: `getFullList()` throughout `server/storage.js`
+  and `server/rag.js`, with RAG re-tokenizing the entire knowledge base per call (see
+  "RAG is keyword-overlap only" above). Load-tested: real but sub-linear latency growth
+  (~3× at 20× the data). Fine at prototype scale; add pagination/caching before scaling.
+- **PocketBase is not supervised by systemd**: started manually (or via
+  `start-production.sh`), unlike `office-agent.service` (`Restart=always`). If it
+  crashes, every authenticated endpoint breaks until it's restarted by hand. Not
+  observed to crash in practice; worth a systemd unit before unattended production use.

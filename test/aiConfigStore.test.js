@@ -6,6 +6,7 @@ import {
   classifyProviderError,
   resolveProviderFields,
   assertSafeCustomUrl,
+  withUserLock,
 } from '../server/aiConfigStore.js';
 
 test('recordToMaskedConfig never exposes cipher or plaintext key', () => {
@@ -137,5 +138,62 @@ test('assertSafeCustomUrl blocks http and private hosts in production', () => {
   } finally {
     if (prev === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = prev;
+  }
+});
+
+// withUserLock backs the fix for a load-tested race: concurrent
+// create/update/setDefault/delete calls for the same user raced on the
+// non-transactional "at most one is_default" invariant (~80% of bursts of 8
+// concurrent /default calls left zero configs marked default). Load-tested
+// against the live server; these two tests pin the lock's own contract in
+// isolation so a regression is caught by `npm test` too.
+test('withUserLock serializes concurrent tasks for the same key, but not across different keys', async () => {
+  const events = [];
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const sameKeyA = withUserLock('user-a', async () => {
+    events.push('a-start');
+    await wait(20);
+    events.push('a-end');
+  });
+  const sameKeyB = withUserLock('user-a', async () => {
+    events.push('b-start');
+    await wait(1);
+    events.push('b-end');
+  });
+  const otherKey = withUserLock('user-z', async () => {
+    events.push('z');
+  });
+
+  await Promise.all([sameKeyA, sameKeyB, otherKey]);
+
+  // b must not start until a has fully finished (same key -> serialized).
+  assert.deepEqual(events.filter((e) => e !== 'z'), ['a-start', 'a-end', 'b-start', 'b-end']);
+  // a different key is not blocked behind user-a's queue.
+  assert.ok(events.includes('z'));
+});
+
+test('withUserLock: a rejecting task propagates its error without an unhandled rejection or a stuck queue', async () => {
+  const unhandled = [];
+  const onUnhandledRejection = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandledRejection);
+
+  try {
+    await assert.rejects(
+      withUserLock('user-reject', async () => {
+        throw new Error('boom');
+      }),
+      /boom/,
+    );
+
+    // Let any dangling microtask (the bug this regression-tests) surface.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(unhandled.length, 0, `expected no unhandled rejections, got: ${unhandled.map(String)}`);
+
+    // The queue for this key must not be stuck after a rejection.
+    const result = await withUserLock('user-reject', async () => 'still-works');
+    assert.equal(result, 'still-works');
+  } finally {
+    process.off('unhandledRejection', onUnhandledRejection);
   }
 });
