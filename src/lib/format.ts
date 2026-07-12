@@ -68,6 +68,20 @@ export function buildMeetingTranscript(form: MeetingInput, attachments: MeetingA
   return [manualText, ...attachmentSections].filter(Boolean).join('\n\n');
 }
 
+/** Client-side download of copy-ready text as a Markdown file. */
+export function downloadMarkdown(text: string, filename: string) {
+  const safeName = filename.endsWith('.md') ? filename : `${filename}.md`;
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = safeName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function attachmentMeta(attachment: MeetingAttachment) {
   if (attachment.status === 'processing') {
     return attachment.kind === 'recording' || attachment.kind === 'audio' ? '转写中' : '提取中';

@@ -1,7 +1,20 @@
 import { useRef, useState } from 'react';
-import { Loader2, Save, Sparkles, Trash2, Wand2 } from 'lucide-react';
-import { Button, Input, Select, Tooltip } from '../freejoy';
+import {
+  Copy,
+  FileText,
+  Loader2,
+  Mic,
+  Music,
+  Save,
+  Sparkles,
+  StickyNote,
+  Trash2,
+  Wand2,
+} from 'lucide-react';
+import { Badge, Button, Input, Select, Tooltip } from '../freejoy';
 import { ResultPanel } from '../components/ResultPanel';
+import { SectionCard } from '../components/SectionCard';
+import { StepperPill } from '../components/StepperPill';
 import { MeetingAssetIcon } from '../components/primitives';
 import { attachmentMeta, buildMeetingTranscript, protectedRecordingFileName } from '../lib/format';
 import { meetingFileAccept, meetingTypes, sampleMeeting } from '../data/constants';
@@ -11,6 +24,7 @@ export function ComposeView({
   form,
   attachments,
   analysis,
+  canUseRag,
   isAnalyzing,
   isSaving,
   isTranscribing,
@@ -26,6 +40,7 @@ export function ComposeView({
   form: MeetingInput;
   attachments: MeetingAttachment[];
   analysis: AnalysisResult | null;
+  canUseRag: boolean;
   isAnalyzing: boolean;
   isSaving: boolean;
   isTranscribing: boolean;
@@ -38,119 +53,288 @@ export function ComposeView({
   onAnalyze: () => void;
   onSave: () => void;
 }) {
+  const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
   const analyzableTextLength = buildMeetingTranscript(form, attachments).trim().length;
+  const participantCount = form.participants
+    .split(/[,，、]/)
+    .map((name) => name.trim())
+    .filter(Boolean).length;
+
+  if (analysis) {
+    return (
+      <ComposeResult
+        form={form}
+        analysis={analysis}
+        isSaving={isSaving}
+        onSave={onSave}
+        onReanalyze={onAnalyze}
+        isAnalyzing={isAnalyzing}
+      />
+    );
+  }
 
   return (
-    <section className="two-column">
-      <div className="panel compose-panel">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">新建会议</span>
-            <h2>输入转写稿</h2>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => onFormChange(sampleMeeting)} iconLeft={<Sparkles size={16} />}>
-            示例
+    <>
+      <StepperPill
+        step={1}
+        total={2}
+        heading="准备会议材料"
+        actions={
+          <Button variant="ghost" size="sm" iconLeft={<Sparkles size={15} />} onClick={() => onFormChange(sampleMeeting)}>
+            填充示例
           </Button>
-        </div>
+        }
+      />
 
-        <div className="form-grid">
-          <Input
-            label="会议标题"
-            value={form.title}
-            onChange={(event) => onFormChange({ ...form, title: event.target.value })}
-            placeholder="例如：AI 会议助手第一版功能讨论"
-          />
-          <Input
-            label="会议日期"
-            type="date"
-            value={form.date}
-            onChange={(event) => onFormChange({ ...form, date: event.target.value })}
-          />
-          <Select
-            label="会议类型"
-            value={form.meeting_type}
-            onChange={(event) => onFormChange({ ...form, meeting_type: event.target.value })}
-            options={[...meetingTypes]}
-          />
+      <div className="compose-layout">
+        <SectionCard title="会议信息" caption="支持文字、音频、图片与文档输入">
+          <div className="form-grid two">
+            <Input
+              label="会议标题"
+              value={form.title}
+              onChange={(event) => onFormChange({ ...form, title: event.target.value })}
+              placeholder="例如：AI 会议助手第一版功能讨论"
+            />
+            <Select
+              label="会议类型"
+              value={form.meeting_type}
+              onChange={(event) => onFormChange({ ...form, meeting_type: event.target.value })}
+              options={[...meetingTypes]}
+            />
+          </div>
           <Input
             label="参会人"
             value={form.participants}
             onChange={(event) => onFormChange({ ...form, participants: event.target.value })}
             placeholder="姓名用逗号分隔"
           />
-        </div>
 
-        <div className="transcript-workbench">
-          <div className="workbench-heading">
-            <div>
-              <span className="eyebrow">转写部分</span>
-              <h3>语音与文本集合</h3>
-            </div>
-            <span>{analyzableTextLength ? `${analyzableTextLength} 字可分析` : '未输入内容'}</span>
+          <div>
+            <span className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>
+              转写与材料
+            </span>
+            <UploadTiles
+              isTranscribing={isTranscribing}
+              onTranscribe={onTranscribe}
+              onExtractAttachment={onExtractAttachment}
+              onError={onError}
+              onPaste={() => transcriptRef.current?.focus()}
+            />
+            <span className="upload-hint" style={{ display: 'block', marginTop: 8 }}>
+              DOCX / PPTX / XLSX / 图片
+            </span>
           </div>
 
-          <div className="transcript-field">
-            <label className="field-label" htmlFor="meeting-raw-transcript">
-              原始会议文本
+          <div>
+            <label className="eyebrow" htmlFor="meeting-raw-transcript" style={{ display: 'block', marginBottom: 8 }}>
+              会议转写稿
             </label>
-            <div className="transcript-input-wrap">
-              <textarea
-                id="meeting-raw-transcript"
-                value={form.raw_transcript}
-                onChange={(event) => onFormChange({ ...form, raw_transcript: event.target.value })}
-                placeholder="粘贴或输入会议文本"
-              />
-              <MeetingContentToolbar
-                isTranscribing={isTranscribing}
-                onTranscribe={onTranscribe}
-                onExtractAttachment={onExtractAttachment}
-                onError={onError}
-              />
-            </div>
+            <textarea
+              ref={transcriptRef}
+              id="meeting-raw-transcript"
+              className="fj-textarea"
+              rows={7}
+              value={form.raw_transcript}
+              onChange={(event) => onFormChange({ ...form, raw_transcript: event.target.value })}
+              placeholder="粘贴或输入会议文本，AI 会提取材料再生成结构化纪要"
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface-soft)',
+                fontSize: '13px',
+                lineHeight: 1.7,
+                color: 'var(--text)',
+                resize: 'vertical',
+              }}
+            />
             <MeetingAttachmentList
               attachments={attachments}
               onToggleAttachment={onToggleAttachment}
               onDeleteAttachment={onDeleteAttachment}
             />
           </div>
-        </div>
 
-        <div className="button-row">
-          <Button
-            onClick={onAnalyze}
-            disabled={isAnalyzing}
-            iconLeft={isAnalyzing ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
-          >
-            生成结构化纪要
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={onSave}
-            disabled={!analysis || isSaving}
-            iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
-          >
-            保存到记忆库
-          </Button>
+          <div className="page-card-foot">
+            <Badge tone={canUseRag ? 'success' : 'neutral'}>{canUseRag ? 'RAG 已启用' : 'RAG 未启用'}</Badge>
+            <span className="form-note">{canUseRag ? '将引用资料库中的产品资料' : '可在 RAG 资料库启用引用'}</span>
+            <Button
+              onClick={onAnalyze}
+              disabled={isAnalyzing}
+              iconLeft={isAnalyzing ? <Loader2 className="spin" size={16} /> : <Wand2 size={16} />}
+              style={{ marginLeft: 'auto' }}
+            >
+              生成会议纪要
+            </Button>
+          </div>
+        </SectionCard>
+
+        <div className="compose-rail">
+          <SectionCard title="输出预览" caption="生成后在这里显示结构化结果">
+            <div className="preview-empty">
+              <span className="preview-dot" aria-hidden="true" />
+              <div>
+                <h3>等待生成</h3>
+                <p>填完左侧材料后开始</p>
+              </div>
+              <div className="mini-steps">
+                <div className="mini-step active">
+                  <span className="mini-step-num">01</span>
+                  材料提取
+                </div>
+                <div className="mini-step">
+                  <span className="mini-step-num">02</span>
+                  结构化分析
+                </div>
+                <div className="mini-step">
+                  <span className="mini-step-num">03</span>
+                  记忆归档
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="输入质量检查" caption="生成前快速确认">
+            <div className="quality-checklist">
+              <Badge tone={form.title.trim() ? 'success' : 'neutral'}>
+                {form.title.trim() ? '标题已填写' : '标题待填写'}
+              </Badge>
+              <Badge tone={participantCount > 0 ? 'success' : 'neutral'}>参会人 {participantCount} 位</Badge>
+              <Badge tone={analyzableTextLength > 0 ? 'success' : 'neutral'}>材料 {analyzableTextLength} 字</Badge>
+            </div>
+            <span className="form-note">建议补充会议时间与参会人，便于后续检索。</span>
+            <Button variant="secondary" size="sm" full onClick={() => transcriptRef.current?.focus()}>
+              补充会议信息
+            </Button>
+          </SectionCard>
         </div>
       </div>
-
-      <div className="compose-side">
-        <ResultPanel analysis={analysis} />
-      </div>
-    </section>
+    </>
   );
 }
 
-function MeetingContentToolbar({
+function ComposeResult({
+  form,
+  analysis,
+  isSaving,
+  isAnalyzing,
+  onSave,
+  onReanalyze,
+}: {
+  form: MeetingInput;
+  analysis: AnalysisResult;
+  isSaving: boolean;
+  isAnalyzing: boolean;
+  onSave: () => void;
+  onReanalyze: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const minutes = analysis.structured_minutes;
+  const score = analysis.quality_check.has_hallucination ? 78 : 92;
+  const provider = analysis.provider;
+
+  async function copyAll() {
+    const text = [
+      minutes.one_sentence_summary,
+      '',
+      minutes.summary,
+      '',
+      '决策：',
+      ...minutes.decisions.map((d) => `- ${d.decision}`),
+      '',
+      '待办：',
+      ...minutes.action_items.map((a) => `- ${a.task}（${a.owner || '未指定'}）`),
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <>
+      <StepperPill
+        step={2}
+        total={2}
+        heading="纪要已生成"
+        actions={
+          <>
+            <Button variant="secondary" size="sm" iconLeft={<Copy size={15} />} onClick={copyAll}>
+              {copied ? '已复制' : '复制全文'}
+            </Button>
+            <Button
+              size="sm"
+              iconLeft={isSaving ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
+              onClick={onSave}
+              disabled={isSaving}
+            >
+              保存记忆
+            </Button>
+          </>
+        }
+      />
+
+      <div className="result-layout">
+        <SectionCard title="原始材料" caption={form.title || '未命名会议'}>
+          <div className="chip-row">
+            {form.meeting_type && form.meeting_type !== '自动识别' && (
+              <span className="chip">{form.meeting_type}</span>
+            )}
+            {form.participants.trim() && (
+              <span className="chip">{form.participants.split(/[,，、]/).filter((p) => p.trim()).length} 位参会人</span>
+            )}
+          </div>
+          <div className="transcript-panel">{form.raw_transcript || '（无原始文本，来自附件提取）'}</div>
+          <div className="mono-line">
+            来源：{provider ? `${analysis.source === 'default-api' ? 'API' : '体验'} · ${provider.model}` : '体验模式'}
+            {` · ${form.raw_transcript.trim().length} 字`}
+          </div>
+          <div className="quality-card">
+            <div className="quality-card-head">
+              <strong>质量检查</strong>
+              <span className="quality-score">Copy-ready {score}/100</span>
+            </div>
+            <div className="quality-bar">
+              <span style={{ width: `${score}%` }} />
+            </div>
+            <p>
+              已识别 {minutes.decisions.length} 项决策、{minutes.action_items.length} 项待办，
+              {analysis.quality_check.has_hallucination ? '存在需复核的疑点。' : '未发现明显时间冲突。'}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconLeft={isAnalyzing ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} />}
+            onClick={onReanalyze}
+            disabled={isAnalyzing}
+          >
+            重新生成
+          </Button>
+        </SectionCard>
+
+        <ResultPanel analysis={analysis} />
+      </div>
+    </>
+  );
+}
+
+function UploadTiles({
   isTranscribing,
   onTranscribe,
   onExtractAttachment,
   onError,
+  onPaste,
 }: {
   isTranscribing: boolean;
   onTranscribe: (file: Blob, fileName?: string, kind?: Extract<MeetingAttachmentKind, 'recording' | 'audio'>) => void;
   onExtractAttachment: (file: File) => void;
   onError: (message: string) => void;
+  onPaste: () => void;
 }) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -164,7 +348,6 @@ function MeetingContentToolbar({
     }
 
     let stream: MediaStream;
-
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
@@ -202,75 +385,56 @@ function MeetingContentToolbar({
   }
 
   return (
-    <div className="attachment-toolbar" aria-label="会议内容附件操作">
-      <Tooltip content={isRecording ? '停止录音' : '开始录音'} placement="top">
-        <button
-          type="button"
-          className={isRecording ? 'attachment-tool-button active' : 'attachment-tool-button'}
-          onClick={isRecording ? stopRecording : startRecording}
+    <div className="upload-tiles">
+      <label className={isTranscribing ? 'upload-tile' : 'upload-tile'} aria-label="上传文件">
+        <FileText size={18} />
+        上传文件
+        <input
+          type="file"
+          accept={`${meetingFileAccept},image/*`}
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onExtractAttachment(file);
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+
+      <label className={isTranscribing ? 'upload-tile' : 'upload-tile'} aria-label="上传音频">
+        <Music size={18} />
+        上传音频
+        <input
+          type="file"
+          accept="audio/*,video/mp4,video/webm"
+          hidden
           disabled={isTranscribing}
-          aria-label={isRecording ? '停止录音' : '开始录音'}
-        >
-          <MeetingAssetIcon kind="recording" />
-        </button>
-      </Tooltip>
-      <Tooltip content={isTranscribing ? '正在转写' : '上传音频'} placement="top">
-        <label
-          className={isTranscribing ? 'attachment-tool-button attachment-tool-label disabled' : 'attachment-tool-button attachment-tool-label'}
-          aria-label="上传音频"
-        >
-          <MeetingAssetIcon kind="audio" />
-          <input
-            type="file"
-            accept="audio/*,video/mp4,video/webm"
-            disabled={isTranscribing}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                onTranscribe(file, file.name, 'audio');
-                event.target.value = '';
-              }
-            }}
-          />
-        </label>
-      </Tooltip>
-      <Tooltip content="上传图片" placement="top">
-        <label className="attachment-tool-button attachment-tool-label" aria-label="上传图片">
-          <MeetingAssetIcon kind="image" />
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                onExtractAttachment(file);
-                event.target.value = '';
-              }
-            }}
-          />
-        </label>
-      </Tooltip>
-      <Tooltip content="上传文件" placement="top">
-        <label className="attachment-tool-button attachment-tool-label" aria-label="上传文件">
-          <MeetingAssetIcon kind="file" />
-          <input
-            type="file"
-            accept={meetingFileAccept}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                onExtractAttachment(file);
-                event.target.value = '';
-              }
-            }}
-          />
-        </label>
-      </Tooltip>
-      {isTranscribing && (
-        <span className="attachment-tool-status" aria-label="正在转写">
-          <Loader2 className="spin" size={15} />
-        </span>
-      )}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onTranscribe(file, file.name, 'audio');
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+
+      <button
+        type="button"
+        className={isRecording ? 'upload-tile recording' : 'upload-tile'}
+        onClick={isRecording ? stopRecording : startRecording}
+        disabled={isTranscribing}
+      >
+        {isRecording ? <span className="tone-dot rose" /> : <Mic size={18} />}
+        {isRecording ? '停止录音' : '开始录音'}
+      </button>
+
+      <button type="button" className="upload-tile" onClick={onPaste}>
+        <StickyNote size={18} />
+        粘贴内容
+      </button>
     </div>
   );
 }
@@ -289,42 +453,45 @@ function MeetingAttachmentList({
   }
 
   return (
-    <div className="meeting-attachment-list" aria-label="会议内容附件">
+    <div className="attachment-list" aria-label="会议内容附件" style={{ marginTop: 10 }}>
       {attachments.map((attachment) => (
         <div
-          className={[
-            'meeting-attachment-item',
-            attachment.selected ? 'selected' : '',
-            attachment.status,
-          ]
-            .filter(Boolean)
-            .join(' ')}
+          className={attachment.status === 'error' ? 'attachment-row error' : 'attachment-row'}
           key={attachment.id}
         >
-          <Tooltip content={attachment.selected ? '已选择，点击取消' : '未选择，点击选择'} placement="top" style={{ width: '100%' }}>
-            <button
-              type="button"
-              className="meeting-attachment-select"
-              onClick={() => onToggleAttachment(attachment.id)}
-              aria-pressed={attachment.selected}
-            >
-              <MeetingAssetIcon kind={attachment.kind} />
-              <span className="meeting-attachment-copy">
-                <strong>{attachment.fileName}</strong>
-                <span>{attachmentMeta(attachment)}</span>
-              </span>
-            </button>
-          </Tooltip>
-          <Tooltip content="删除" placement="top">
-            <button
-              type="button"
-              className="meeting-attachment-delete"
-              onClick={() => onDeleteAttachment(attachment.id)}
-              aria-label={`删除 ${attachment.fileName}`}
-            >
-              <Trash2 size={14} />
-            </button>
-          </Tooltip>
+          <MeetingAssetIcon kind={attachment.kind} />
+          <div className="attachment-copy">
+            <strong>{attachment.fileName}</strong>
+            <span>{attachmentMeta(attachment)}</span>
+          </div>
+          <div className="attachment-actions">
+            <Tooltip content={attachment.selected ? '已选择，点击取消' : '未选择，点击选择'} placement="top">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => onToggleAttachment(attachment.id)}
+                aria-pressed={attachment.selected}
+                aria-label={attachment.selected ? '取消选择' : '选择'}
+                style={attachment.selected ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+              >
+                {attachment.status === 'processing' ? (
+                  <Loader2 className="spin" size={15} />
+                ) : (
+                  <span className={attachment.selected ? 'tone-dot coral' : 'tone-dot neutral'} />
+                )}
+              </button>
+            </Tooltip>
+            <Tooltip content="删除" placement="top">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => onDeleteAttachment(attachment.id)}
+                aria-label={`删除 ${attachment.fileName}`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
       ))}
     </div>

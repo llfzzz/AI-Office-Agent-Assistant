@@ -1,18 +1,10 @@
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
 } from 'react';
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Menu,
-  PanelLeftClose,
-} from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import {
   analyzeMeeting,
   askMeeting,
@@ -49,23 +41,21 @@ import type { AiConfig, AiConfigInput, AiProviderCatalog } from './aiProvider';
 import { blankForm, blankFeedbackForm, blankPrdTask, blankWeeklyTask } from './data/constants';
 import { buildMeetingTranscript, createAttachmentId, inferUploadKind, protectedRecordingFileName } from './lib/format';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
-import { useDismiss } from './hooks/useDismiss';
 import {
-  getActiveNavItem,
   getNavGroupIdForView,
   initialOpenNavGroups,
   isMobileNavViewport,
   navigationGroups,
   onlyOpenNavGroup,
+  viewMeta,
 } from './app/navigation';
 import { AiSettingsModal } from './components/AiSettingsModal';
-import { AppLogo, Metric } from './components/primitives';
-import { UtilityMenu } from './components/UtilityMenu';
+import { AppLogo } from './components/primitives';
+import { PageHeader } from './components/PageHeader';
 import { AuthView } from './views/AuthView';
 import { ComposeView } from './views/ComposeView';
 import { DetailView } from './views/DetailView';
 import { FeedbackIterationView } from './views/FeedbackIterationView';
-import { HomeView } from './views/HomeView';
 import { LibraryView } from './views/LibraryView';
 import { OfficeOutputView } from './views/OfficeOutputView';
 import { PrdReviewView } from './views/PrdReviewView';
@@ -101,7 +91,6 @@ function App() {
       ? onlyOpenNavGroup()
       : initialOpenNavGroups,
   );
-  const [utilityMenuOpen, setUtilityMenuOpen] = useState(false);
   const [form, setForm] = useState<MeetingInput>(blankForm);
   const [meetingAttachments, setMeetingAttachments] = useState<MeetingAttachment[]>([]);
   const [lastAnalyzedMeetingInput, setLastAnalyzedMeetingInput] = useState<MeetingInput | null>(null);
@@ -146,8 +135,6 @@ function App() {
   const [listLoading, setListLoading] = useState(false);
   const [officeListLoading, setOfficeListLoading] = useState(false);
   const [error, setError] = useState('');
-  const utilityMenuRef = useRef<HTMLDivElement | null>(null);
-  const activeNavItem = getActiveNavItem(activeView);
 
   useEffect(() => {
     getHealth()
@@ -185,8 +172,6 @@ function App() {
       mediaQuery.removeEventListener('change', handleViewportChange);
     };
   }, [activeView]);
-
-  useDismiss(utilityMenuRef, utilityMenuOpen, () => setUtilityMenuOpen(false));
 
   useEffect(() => {
     if (!session) {
@@ -364,7 +349,6 @@ function App() {
 
   function handleNavSelect(view: View) {
     showView(view);
-    setUtilityMenuOpen(false);
 
     if (isMobileViewport || isMobileNavViewport()) {
       setIsNavCollapsed(true);
@@ -380,9 +364,6 @@ function App() {
 
   async function handleAnalyze() {
     setError('');
-    if (activeView === 'home') {
-      showView('compose');
-    }
 
     const hasProcessingSelectedAttachment = meetingAttachments.some(
       (attachment) => attachment.selected && attachment.status === 'processing',
@@ -734,7 +715,7 @@ function App() {
     setLastAnalyzedMeetingInput(null);
     setOfficeResult(null);
     setLastOfficeInput(null);
-    showView('home');
+    showView('skills');
   }
 
   async function handleSubmitOfficeFeedback() {
@@ -776,159 +757,124 @@ function App() {
     );
   }
 
+  const meta = viewMeta[activeView];
+  const topbarTitle = activeView === 'detail' && selectedMeeting ? selectedMeeting.title : meta.title;
+  const userLabel = session.user.name || session.user.email;
+
   return (
-    <div
-      className={[
-        activeView === 'home' ? 'app-shell home-shell' : 'app-shell',
-        activeView !== 'home' && isNavCollapsed ? 'nav-collapsed' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-    >
-      {activeView !== 'home' && (
-        <aside
-          className={isNavCollapsed ? 'sidebar collapsed' : 'sidebar'}
-          aria-label="应用导航"
+    <div className={isNavCollapsed ? 'app-shell nav-collapsed' : 'app-shell'}>
+      <aside className="sidebar" aria-label="应用导航">
+        <button
+          type="button"
+          className="brand"
+          onClick={() => handleNavSelect('skills')}
+          aria-label="返回工作台"
+          title="返回工作台"
         >
-          <div className="sidebar-top">
-            <button
-              type="button"
-              className="brand"
-              onClick={() => showView('skills')}
-              aria-label="返回工作台"
-              title="返回工作台"
-            >
-              <div className="brand-mark">
-                <AppLogo size={22} strokeWidth={2.1} />
-              </div>
-              <div className="brand-copy">
-                <strong>Office Agent</strong>
-                <span>{session.user.name || session.user.email}</span>
-              </div>
-            </button>
-            <span className="active-view-label">{activeNavItem?.label || '工作台'}</span>
-            <div className="sidebar-actions">
-              <UtilityMenu
-                refEl={utilityMenuRef}
-                health={health}
-                isOpen={utilityMenuOpen}
-                configs={aiConfigs}
-                userLabel={session.user.name || session.user.email}
-                onOpenChange={setUtilityMenuOpen}
-                onOpenSettings={() => setAiSettingsOpen(true)}
-                onLogout={handleLogout}
-              />
-              <Tooltip content={isNavCollapsed ? '展开导航' : '收起导航'} placement="right">
+          <div className="brand-mark">
+            <AppLogo size={22} strokeWidth={2.1} />
+          </div>
+          <div className="brand-copy">
+            <strong>OFFICE AGENT</strong>
+            <span>Free Joy 工作区</span>
+          </div>
+        </button>
+        <span className="workspace-pill">AI 工作台</span>
+
+        <nav className="nav-stack" aria-label="主导航">
+          {navigationGroups.map((group) => {
+            const isOpen = openNavGroups[group.id];
+
+            return (
+              <div key={group.id} className="nav-group">
                 <button
                   type="button"
-                  className="icon-button nav-collapse-toggle"
-                  aria-label={isNavCollapsed ? '展开导航' : '收起导航'}
-                  aria-expanded={!isNavCollapsed}
-                  onClick={() => setIsNavCollapsed((collapsed) => !collapsed)}
+                  className="nav-group-label"
+                  aria-expanded={isOpen}
+                  onClick={() => toggleNavGroup(group.id)}
                 >
-                  {isMobileViewport ? (
-                    isNavCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />
-                  ) : isNavCollapsed ? (
-                    <Menu size={18} />
-                  ) : (
-                    <PanelLeftClose size={18} />
-                  )}
+                  <span>{group.label}</span>
                 </button>
-              </Tooltip>
-            </div>
-          </div>
+                <div className="nav-group-items" hidden={!isNavCollapsed && !isOpen}>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
 
-          <nav className="nav-stack" aria-label="主导航">
-            {navigationGroups.map((group) => {
-              const hasActiveItem = group.items.some((item) => item.view === activeView);
-              const isOpen = openNavGroups[group.id];
-
-              return (
-                <div
-                  key={group.id}
-                  className={hasActiveItem ? 'nav-group active' : 'nav-group'}
-                >
-                  <button
-                    type="button"
-                    className="nav-group-toggle"
-                    aria-expanded={isOpen}
-                    onClick={() => toggleNavGroup(group.id)}
-                  >
-                    {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                    <span>{group.label}</span>
-                  </button>
-                  <div className="nav-group-items" hidden={!isNavCollapsed && !isOpen}>
-                    {group.items.map((item) => {
-                      const Icon = item.icon;
-                      const disabled = item.disabled?.({ selectedMeeting }) || false;
-
-                      return (
-                        <Tooltip
-                          key={item.view}
-                          content={isNavCollapsed ? (disabled ? '请先选择会议' : item.label) : undefined}
-                          placement="right"
-                          style={{ width: '100%' }}
+                    return (
+                      <Tooltip
+                        key={item.view}
+                        content={isNavCollapsed ? item.label : undefined}
+                        placement="right"
+                        style={{ width: '100%' }}
+                      >
+                        <button
+                          type="button"
+                          aria-label={item.label}
+                          className={activeView === item.view ? 'nav-item active' : 'nav-item'}
+                          onClick={() => handleNavSelect(item.view)}
                         >
-                          <button
-                            type="button"
-                            aria-label={item.label}
-                            className={activeView === item.view ? 'nav-item active' : 'nav-item'}
-                            onClick={() => handleNavSelect(item.view)}
-                            disabled={disabled}
-                          >
-                            <Icon size={18} />
-                            <span>{item.label}</span>
-                          </button>
-                        </Tooltip>
-                      );
-                    })}
-                  </div>
+                          <span className="nav-icon">
+                            <Icon size={16} />
+                          </span>
+                          <span>{item.label}</span>
+                        </button>
+                      </Tooltip>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </nav>
+              </div>
+            );
+          })}
+        </nav>
 
-          <div className="metric-grid">
-            <Metric label="会议" value={stats.meetings} />
-            <Metric label="输出" value={stats.outputs} />
-            <Metric label="反馈" value={stats.feedback} />
+        <div className="sidebar-user">
+          <span className="user-avatar">{userLabel.trim().charAt(0).toUpperCase()}</span>
+          <div className="user-copy">
+            <strong>{userLabel}</strong>
+            <span>个人工作区</span>
           </div>
-        </aside>
-      )}
+        </div>
+      </aside>
 
-      <main className={activeView === 'home' ? 'workspace home-workspace' : 'workspace'}>
-        {activeView === 'home' && (
-          <HomeView
-            onStart={() => showView('compose')}
-            onLibrary={() => showView('library')}
-          />
-        )}
+      <main className="workspace">
+        <PageHeader
+          title={topbarTitle}
+          subtitle={meta.subtitle}
+          health={health}
+          configs={aiConfigs}
+          userLabel={userLabel}
+          onOpenSettings={() => setAiSettingsOpen(true)}
+          onLogout={handleLogout}
+          onToggleNav={() => setIsNavCollapsed((collapsed) => !collapsed)}
+          navCollapsed={isNavCollapsed}
+        />
 
-        {activeView === 'skills' && (
-          <SkillWorkbenchView
-            meetingCount={stats.meetings}
-            outputCount={stats.outputs}
-            feedbackCount={stats.feedback}
-            actionCount={stats.actions}
-            memoryCount={stats.memories}
-            knowledgeCount={knowledgeDocuments.length}
-            ragEnabled={ragEnabled}
-            recentOutputs={officeOutputs.slice(0, 5)}
-            onOpenView={showView}
-          />
-        )}
+        <div className="view-body">
+          {error && (
+            <Alert tone="danger" icon={<AlertTriangle size={18} />}>
+              {error}
+            </Alert>
+          )}
 
-        {error && (
-          <Alert tone="danger" icon={<AlertTriangle size={18} />} style={{ marginBottom: 4 }}>
-            {error}
-          </Alert>
-        )}
+          {activeView === 'skills' && (
+            <SkillWorkbenchView
+              meetingCount={stats.meetings}
+              outputCount={stats.outputs}
+              feedbackCount={stats.feedback}
+              actionCount={stats.actions}
+              memoryCount={stats.memories}
+              knowledgeCount={knowledgeDocuments.length}
+              ragEnabled={ragEnabled}
+              recentOutputs={officeOutputs.slice(0, 5)}
+              onOpenView={showView}
+            />
+          )}
 
-        {activeView === 'compose' && (
+          {activeView === 'compose' && (
           <ComposeView
             form={form}
             attachments={meetingAttachments}
             analysis={analysis}
+            canUseRag={ragEnabled && knowledgeDocuments.length > 0}
             isAnalyzing={isAnalyzing}
             isSaving={isSaving}
             isTranscribing={isTranscribing}
@@ -985,6 +931,7 @@ function App() {
               setTypeFilter(value);
             }}
             onSelectMeeting={selectMeeting}
+            onNewMeeting={() => showView('compose')}
           />
         )}
 
@@ -1039,7 +986,8 @@ function App() {
           />
         )}
 
-        {activeView === 'docs' && <ProductDocsView />}
+          {activeView === 'docs' && <ProductDocsView onOpenView={showView} />}
+        </div>
       </main>
 
       <AiSettingsModal
