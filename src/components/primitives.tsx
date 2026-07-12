@@ -1,4 +1,4 @@
-import { Database, Tags } from 'lucide-react';
+import { Tags } from 'lucide-react';
 import type { MeetingAttachmentKind } from '../types';
 
 /**
@@ -33,48 +33,10 @@ export function AppLogo({ size = 22, strokeWidth = 2 }: { size?: number; strokeW
   );
 }
 
-export function Metric({
-  label,
-  value,
-  onClick,
-  hint,
-}: {
-  label: string;
-  value: number;
-  onClick?: () => void;
-  hint?: string;
-}) {
-  if (onClick) {
-    return (
-      <button type="button" className="metric metric-button" onClick={onClick} title={hint || `查看${label}`}>
-        <strong>{value}</strong>
-        <span>{label}</span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="metric">
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-export function EmptyState() {
-  return (
-    <div className="empty-state">
-      <Database size={28} />
-      <h3>还没有会议记忆</h3>
-      <p>保存分析结果后会出现在这里。</p>
-    </div>
-  );
-}
-
 export function SourceBadge({ configured }: { configured: boolean }) {
   return (
     <span className={configured ? 'source-badge configured' : 'source-badge fallback'}>
-      {configured ? 'API 已连接' : '演示模式'}
+      {configured ? 'API 已连接' : '体验模式'}
     </span>
   );
 }

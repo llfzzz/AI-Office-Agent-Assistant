@@ -1,6 +1,8 @@
-import { Loader2, Save, Wand2 } from 'lucide-react';
+import { Check, Loader2, Wand2 } from 'lucide-react';
 import { Badge, Button, Input, Textarea } from '../freejoy';
 import { OfficeResultPanel } from '../components/OfficeResultPanel';
+import { SectionCard } from '../components/SectionCard';
+import { skillName } from '../lib/office';
 import type { MeetingRecord, OfficeRunResult, OfficeTaskInput } from '../types';
 
 export function WeeklyReportView({
@@ -25,6 +27,7 @@ export function WeeklyReportView({
   onSave: () => void;
 }) {
   const metadata = task.metadata || {};
+  const linkedCount = task.linked_meeting_ids?.length || 0;
 
   function updateMetadata(key: string, value: string) {
     onTask({ ...task, metadata: { ...metadata, [key]: value } });
@@ -41,16 +44,8 @@ export function WeeklyReportView({
   }
 
   return (
-    <section className="office-skill-layout">
-      <div className="panel office-form-panel">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">周报生成 Skill</span>
-            <h2>把工作记录整理成可复制周报</h2>
-          </div>
-          <Badge tone={canUseRag ? 'success' : 'neutral'}>{canUseRag ? 'RAG 可用' : 'RAG 关闭'}</Badge>
-        </div>
-
+    <div className="office-layout">
+      <SectionCard title="周报材料" caption="引用会议记忆，减少重复整理">
         <div className="form-grid">
           <Input
             label="周报标题"
@@ -58,7 +53,7 @@ export function WeeklyReportView({
             onChange={(event) => onTask({ ...task, title: event.target.value })}
           />
           <Input
-            label="周期"
+            label="统计周期"
             value={metadata.period || ''}
             onChange={(event) => updateMetadata('period', event.target.value)}
             placeholder="例如：2026.05.04 - 2026.05.10"
@@ -66,7 +61,7 @@ export function WeeklyReportView({
         </div>
 
         <Textarea
-          label="工作记录"
+          label="本周工作记录"
           rows={6}
           value={task.content}
           onChange={(event) => onTask({ ...task, content: event.target.value })}
@@ -74,59 +69,63 @@ export function WeeklyReportView({
         />
 
         <Textarea
-          label="下周计划草稿"
+          label="下周计划"
           rows={3}
           value={metadata.next_plan || ''}
           onChange={(event) => updateMetadata('next_plan', event.target.value)}
           placeholder="可选。没有明确计划时，系统会基于未完成事项给出建议并标记依据。"
         />
 
-        <div className="meeting-reference-box">
-          <div className="workbench-heading">
-            <div>
-              <span className="eyebrow">引用会议记录</span>
-              <h3>用于补充本周结论和待办状态</h3>
-            </div>
-            <span>{task.linked_meeting_ids?.length || 0} 已选</span>
-          </div>
+        <div>
+          <span className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>
+            引用会议（{linkedCount}/{meetings.length}）
+          </span>
           {meetings.length === 0 ? (
-            <p className="muted-copy">暂无会议记忆，可先使用会议纪要 Skill 保存会议。</p>
+            <p className="form-note">暂无会议记忆，可先使用会议纪要 Skill 保存会议。</p>
           ) : (
-            <div className="linked-meeting-list">
-              {meetings.slice(0, 4).map((meeting) => (
-                <label className="check-row" key={meeting.id}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(task.linked_meeting_ids?.includes(meeting.id))}
-                    onChange={() => toggleMeeting(meeting.id)}
-                  />
-                  <span>{meeting.title}</span>
-                </label>
-              ))}
+            <div className="linked-list">
+              {meetings.slice(0, 6).map((meeting) => {
+                const checked = Boolean(task.linked_meeting_ids?.includes(meeting.id));
+                return (
+                  <button
+                    type="button"
+                    key={meeting.id}
+                    className={checked ? 'linked-row checked' : 'linked-row'}
+                    onClick={() => toggleMeeting(meeting.id)}
+                    aria-pressed={checked}
+                  >
+                    <span className={checked ? 'tone-dot mint' : 'tone-dot neutral'} />
+                    <div className="linked-copy">
+                      <strong>{meeting.title}</strong>
+                      <span>{meeting.meeting_type}</span>
+                    </div>
+                    {checked && (
+                      <span className="linked-check">
+                        <Check size={16} />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
 
-        <div className="button-row">
+        <div className="page-card-foot">
+          <Badge tone={canUseRag ? 'success' : 'neutral'}>{canUseRag ? 'RAG 已启用' : 'RAG 未启用'}</Badge>
+          <span className="form-note">已选 {linkedCount}/{meetings.length} · 注入摘要/决策/待办</span>
           <Button
             onClick={onRun}
             disabled={isRunning}
-            iconLeft={isRunning ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} />}
+            iconLeft={isRunning ? <Loader2 className="spin" size={16} /> : <Wand2 size={16} />}
+            style={{ marginLeft: 'auto' }}
           >
-            生成周报
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={onSave}
-            disabled={!result || isSaving}
-            iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
-          >
-            保存输出
+            生成本周周报
           </Button>
         </div>
-      </div>
+      </SectionCard>
 
-      <OfficeResultPanel result={result} emptyTitle="等待生成周报" />
-    </section>
+      <OfficeResultPanel result={result} emptyTitle={`等待生成${skillName('weekly_report')}`} isSaving={isSaving} onSave={onSave} />
+    </div>
   );
 }

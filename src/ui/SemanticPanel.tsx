@@ -78,3 +78,37 @@ export function SemanticPanel({
     </Card>
   );
 }
+
+/**
+ * TintPanel — the redesign's fully tinted semantic section: soft tint surface,
+ * colored title (with optional numbered chip), regular body text. Used for
+ * structured-output sections (摘要 / 决策 / 待办 / 风险 / 记忆 …).
+ */
+export function TintPanel({
+  tone,
+  title,
+  index,
+  children,
+  style,
+}: {
+  tone: PanelTone;
+  title: string;
+  index?: number;
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  const [soft, ink, dot] = TONE[tone];
+  return (
+    <section className="tint-panel" style={{ background: soft, ...style }}>
+      <header className="tint-panel-head" style={{ color: ink }}>
+        {typeof index === 'number' && (
+          <span className="tint-panel-index" style={{ background: dot }}>
+            {String(index).padStart(2, '0')}
+          </span>
+        )}
+        <span className="tint-panel-title">{title}</span>
+      </header>
+      <div className="tint-panel-body">{children}</div>
+    </section>
+  );
+}

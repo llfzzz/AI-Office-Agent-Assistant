@@ -1,7 +1,8 @@
-import { SimpleListBlock } from './ListBlock';
+import { TintPanel } from '../ui';
 import { isPrdOutput, isStructuredMinutes, isWeeklyOutput } from '../lib/office';
 import type { PrdReviewOutput, SkillId, StructuredMinutes, WeeklyReportOutput } from '../types';
 
+/** Renders the body of a generated office output (weekly / prd / minutes). */
 export function OfficeOutputPreview({
   output,
   skillId,
@@ -11,57 +12,103 @@ export function OfficeOutputPreview({
 }) {
   if (skillId === 'weekly_report' && isWeeklyOutput(output)) {
     return (
-      <section className="panel office-output-panel">
-        <div className="panel-heading compact">
-          <div>
-            <span className="eyebrow">Skill 输出</span>
-            <h2>{output.one_sentence_summary}</h2>
-          </div>
+      <div className="report-body" style={{ display: 'grid', gap: 16 }}>
+        <div className="report-title">{output.one_sentence_summary || '本周工作周报'}</div>
+
+        <div className="report-section">
+          <h4>本周完成</h4>
+          <ul>
+            {output.completed_items.length === 0 ? (
+              <li className="list-empty">未提及</li>
+            ) : (
+              output.completed_items.map((item, index) => <li key={index}>{item.item}</li>)
+            )}
+          </ul>
         </div>
-        <div className="result-grid">
-          <SimpleListBlock title="完成事项" tone="mint" items={output.completed_items.map((item) => item.item)} />
-          <SimpleListBlock title="关键进展" tone="sky" items={output.key_progress} />
-          <SimpleListBlock title="问题与风险" tone="peach" items={output.risks.map((item) => item.risk)} />
-          <SimpleListBlock title="下周计划" tone="lavender" items={output.next_week_plan.map((item) => item.plan)} />
+
+        <div className="report-section">
+          <h4>关键进展</h4>
+          <ul>
+            {output.key_progress.length === 0 ? (
+              <li className="list-empty">未提及</li>
+            ) : (
+              output.key_progress.map((item, index) => <li key={index}>{item}</li>)
+            )}
+          </ul>
         </div>
-        <pre className="copy-block">{output.copy_ready_report}</pre>
-      </section>
+
+        <div className="report-section">
+          <h4>下周计划</h4>
+          <ul>
+            {output.next_week_plan.length === 0 ? (
+              <li className="list-empty">未提及</li>
+            ) : (
+              output.next_week_plan.map((item, index) => (
+                <li key={index}>
+                  {item.plan}
+                  {item.basis && <span> · {item.basis}</span>}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      </div>
     );
   }
 
   if (skillId === 'prd_review' && isPrdOutput(output)) {
     return (
-      <section className="panel office-output-panel">
-        <div className="panel-heading compact">
-          <div>
-            <span className="eyebrow">PRD 草稿</span>
-            <h2>{output.background}</h2>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {output.background && (
+          <div className="report-title" style={{ fontSize: 17 }}>
+            {output.background}
           </div>
-        </div>
-        <div className="result-grid">
-          <SimpleListBlock title="用户痛点" tone="rose" items={output.user_pain_points.map((item) => item.pain)} />
-          <SimpleListBlock title="功能范围" tone="sky" items={output.scope} />
-          <SimpleListBlock title="验收标准" tone="mint" items={output.acceptance_criteria.map((item) => item.criterion)} />
-          <SimpleListBlock title="风险点" tone="peach" items={output.risks.map((item) => item.risk)} />
-        </div>
-        <pre className="copy-block">{output.prd_draft}</pre>
-      </section>
+        )}
+        <TintPanel tone="peach" title="产品目标">
+          {output.product_goals.length === 0 ? (
+            <p className="list-empty">未提及</p>
+          ) : (
+            output.product_goals.map((goal, index) => <div key={index}>{goal}</div>)
+          )}
+        </TintPanel>
+        <TintPanel tone="sky" title="核心范围">
+          {output.scope.length === 0 ? (
+            <p className="list-empty">未提及</p>
+          ) : (
+            output.scope.map((item, index) => <div key={index}>{item}</div>)
+          )}
+        </TintPanel>
+        <TintPanel tone="mint" title="验收标准">
+          {output.acceptance_criteria.length === 0 ? (
+            <p className="list-empty">未提及</p>
+          ) : (
+            output.acceptance_criteria.map((item, index) => (
+              <div key={index}>
+                <strong>{item.criterion}</strong>
+                {item.verification_method && <div className="mono-line">{item.verification_method}</div>}
+              </div>
+            ))
+          )}
+        </TintPanel>
+        <TintPanel tone="rose" title="主要风险">
+          {output.risks.length === 0 ? (
+            <p className="list-empty">未提及</p>
+          ) : (
+            output.risks.map((item, index) => (
+              <div key={index}>
+                <strong>{item.risk}</strong>
+                {item.mitigation && <div className="mono-line">{item.mitigation}</div>}
+              </div>
+            ))
+          )}
+        </TintPanel>
+      </div>
     );
   }
 
   return (
-    <section className="panel office-output-panel">
-      <div className="panel-heading compact">
-        <div>
-          <span className="eyebrow">会议纪要 Skill 输出</span>
-          <h2>{isStructuredMinutes(output) ? output.one_sentence_summary : '已生成输出'}</h2>
-        </div>
-      </div>
-      {isStructuredMinutes(output) && (
-        <div className="summary-block">
-          <p>{output.summary}</p>
-        </div>
-      )}
-    </section>
+    <TintPanel tone="peach" title="会议纪要输出">
+      <p>{isStructuredMinutes(output) ? output.summary || output.one_sentence_summary : '已生成输出'}</p>
+    </TintPanel>
   );
 }

@@ -199,192 +199,224 @@ export function AiSettingsModal({
     label: provider.label,
   }));
 
+  const statusClass = (status: AiConfig['last_validation_status']) =>
+    status === 'valid' ? 'valid' : status === 'unknown' ? 'unknown' : 'invalid';
+
   return (
-    <Modal open={isOpen} onClose={onClose} title="AI 连接配置" width={580}>
-      <div className="modal-status">
-        <SourceBadge configured={configured} />
-        <p>
+    <Modal open={isOpen} onClose={onClose} title="AI 连接设置" width={580}>
+      <div className="ai-modal-body">
+        <div className="modal-status">
+          <SourceBadge configured={configured} />{' '}
           {defaultConfig
             ? `${defaultConfig.label} · ${providerLabel(defaultConfig)} · ${defaultConfig.model}`
             : configured
               ? '服务器已配置 AI Provider'
-              : '未配置 API Key（演示模式）'}
-        </p>
-      </div>
-
-      {!encryptionAvailable && (
-        <Alert tone="warn" icon={<AlertTriangle size={18} />}>
-          服务器未启用密钥加密（缺少 AI_CONFIG_SECRET），暂时无法保存或使用自定义配置。
-        </Alert>
-      )}
-
-      {error && (
-        <Alert tone="danger" icon={<AlertTriangle size={18} />}>
-          {error}
-        </Alert>
-      )}
-
-      <div className="ai-config-list" aria-label="已保存的 AI 配置">
-        {configs.length === 0 ? (
-          <p className="muted-copy ai-config-empty">还没有自定义配置。未选择时会进入演示模式。</p>
-        ) : (
-          configs.map((config) => (
-            <div className={config.is_default ? 'ai-config-row is-default' : 'ai-config-row'} key={config.id}>
-              <div className="ai-config-main">
-                <div className="ai-config-title">
-                  <strong>{config.label}</strong>
-                  <span className="ai-config-badge">{providerLabel(config)}</span>
-                  <span className={`ai-config-badge status-${config.last_validation_status}`}>
-                    {validationStatusLabels[config.last_validation_status]}
-                  </span>
-                </div>
-                <span className="ai-config-meta">{config.model}</span>
-                <span className="ai-config-key">密钥：{config.api_key_hint || '（未设置）'}</span>
-                {config.last_validation_message && <span className="ai-config-note">{config.last_validation_message}</span>}
-                <label className="ai-config-default-toggle">
-                  <Switch
-                    checked={config.is_default}
-                    disabled={config.is_default || busy?.id === config.id}
-                    onChange={() => {
-                      setBusy({ id: config.id, action: 'default' });
-                      run(() => onSetDefault(config.id)).finally(() => setBusy(null));
-                    }}
-                  />
-                  {config.is_default ? '当前默认' : '设为默认'}
-                </label>
-              </div>
-              <div className="ai-config-actions">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy?.id === config.id}
-                  iconLeft={busy?.id === config.id && busy.action === 'validate' ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
-                  onClick={() => {
-                    setBusy({ id: config.id, action: 'validate' });
-                    run(() => onValidate(config.id)).finally(() => setBusy(null));
-                  }}
-                >
-                  验证
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => editConfig(config)}>
-                  编辑
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  disabled={busy?.id === config.id}
-                  iconLeft={busy?.id === config.id && busy.action === 'delete' ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} />}
-                  onClick={() => {
-                    setBusy({ id: config.id, action: 'delete' });
-                    run(() => onDelete(config.id)).finally(() => setBusy(null));
-                  }}
-                >
-                  删除
-                </Button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="ai-config-form">
-        <div className="ai-config-form-head">
-          <h3>{editing ? '编辑配置' : '新增配置'}</h3>
-          {editing && (
-            <button type="button" className="ai-config-cancel" onClick={resetForm}>
-              <X size={13} /> 取消编辑
-            </button>
-          )}
+              : '内容区可滚动 · 底部操作栏固定 · 密钥加密保存'}
         </div>
 
-        <Input
-          label="配置名称"
-          value={form.label}
-          onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))}
-          placeholder={preset?.label || '例如：我的 DeepSeek'}
-        />
-
-        <Select
-          label="服务商"
-          value={form.provider}
-          onChange={(event) => selectProvider(event.target.value)}
-          options={providerSelectOptions}
-          disabled={!catalog}
-        />
-
-        <Input
-          label="API Key"
-          type="password"
-          value={form.api_key}
-          onChange={(event) => setForm((current) => ({ ...current, api_key: event.target.value }))}
-          placeholder={editing ? '留空则保留原密钥' : 'sk-...'}
-          autoComplete="off"
-        />
-
-        {isOther ? (
-          <Input
-            label="模型名称"
-            value={form.model}
-            onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
-            placeholder="例如：gpt-4o-mini"
-          />
-        ) : (
-          <Select
-            label="模型"
-            value={form.model}
-            onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
-            options={preset ? modelOptions(preset) : []}
-            disabled={!preset}
-          />
+        {!encryptionAvailable && (
+          <Alert tone="warn" icon={<AlertTriangle size={18} />}>
+            服务器未启用密钥加密（缺少 AI_CONFIG_SECRET），暂时无法保存或使用自定义配置。
+          </Alert>
         )}
 
-        {isOther ? (
-          <Input
-            label="Base URL"
-            value={form.base_url}
-            onChange={(event) => setForm((current) => ({ ...current, base_url: event.target.value }))}
-            placeholder="https://api.example.com/v1"
-          />
-        ) : (
-          preset && (
-            <p className="ai-config-auto-note">
-              <Lock size={13} /> 接口地址已自动配置：{preset.baseUrl}
-              {preset.compatNote ? ` · ${preset.compatNote}` : ''}
-            </p>
-          )
+        {error && (
+          <Alert tone="danger" icon={<AlertTriangle size={18} />}>
+            {error}
+          </Alert>
         )}
 
-        {isOther && (
-          <div className="ai-config-advanced">
-            <button type="button" className="ai-config-cancel" onClick={() => setShowAdvanced((value) => !value)}>
-              {showAdvanced ? '收起高级设置' : '高级设置'}
-            </button>
-            {showAdvanced && (
-              <Select
-                label="兼容模式"
-                value={form.api_mode}
-                onChange={(event) => setForm((current) => ({ ...current, api_mode: event.target.value as AiApiMode }))}
-                options={[
-                  { value: 'openai', label: 'OpenAI 兼容（/chat/completions）' },
-                  { value: 'gemini', label: 'Gemini 兼容（generateContent）' },
-                ]}
-              />
+        <section className="ai-modal-section">
+          <h3>已保存配置</h3>
+          {configs.length === 0 ? (
+            <p className="modal-status">还没有自定义配置。未选择时会进入体验模式。</p>
+          ) : (
+            <div className="config-list">
+              {configs.map((config) => (
+                <div className={config.is_default ? 'config-row default' : 'config-row'} key={config.id}>
+                  <span className={`tone-dot ${config.is_default ? 'coral' : 'sky'}`} />
+                  <div className="config-copy">
+                    <strong>
+                      {config.label} · {providerLabel(config)}
+                      {config.is_default ? ' · 默认' : ''}
+                    </strong>
+                    <span>
+                      {config.model} · {config.api_key_hint || '未设置密钥'}
+                      {config.last_validation_message ? ` · ${config.last_validation_message}` : ''}
+                    </span>
+                  </div>
+                  <div className="config-actions">
+                    <span className={`validation-badge ${statusClass(config.last_validation_status)}`}>
+                      {validationStatusLabels[config.last_validation_status]}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy?.id === config.id}
+                      iconLeft={
+                        busy?.id === config.id && busy.action === 'validate' ? (
+                          <Loader2 className="spin" size={14} />
+                        ) : (
+                          <ShieldCheck size={14} />
+                        )
+                      }
+                      onClick={() => {
+                        setBusy({ id: config.id, action: 'validate' });
+                        run(() => onValidate(config.id)).finally(() => setBusy(null));
+                      }}
+                    >
+                      验证
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => editConfig(config)}>
+                      编辑
+                    </Button>
+                    {!config.is_default && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy?.id === config.id}
+                        onClick={() => {
+                          setBusy({ id: config.id, action: 'default' });
+                          run(() => onSetDefault(config.id)).finally(() => setBusy(null));
+                        }}
+                      >
+                        设为默认
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="删除配置"
+                      disabled={busy?.id === config.id}
+                      iconLeft={
+                        busy?.id === config.id && busy.action === 'delete' ? (
+                          <Loader2 className="spin" size={14} />
+                        ) : (
+                          <Trash2 size={14} />
+                        )
+                      }
+                      onClick={() => {
+                        setBusy({ id: config.id, action: 'delete' });
+                        run(() => onDelete(config.id)).finally(() => setBusy(null));
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="ai-modal-section">
+          <h3>
+            {editing ? '编辑 AI 配置' : '新增 AI 配置'}
+            {editing && (
+              <button type="button" className="account-popover-item" style={{ display: 'inline-flex', width: 'auto', padding: '2px 8px', marginLeft: 8 }} onClick={resetForm}>
+                <X size={13} /> 取消编辑
+              </button>
             )}
-          </div>
-        )}
+          </h3>
 
-        <div className="ai-config-form-actions">
-          <label className="ai-config-default-toggle">
+          <div className="form-grid two">
+            <Input
+              label="配置名称"
+              value={form.label}
+              onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))}
+              placeholder={preset?.label || '例如：我的 OpenAI'}
+            />
+            <Select
+              label="服务商"
+              value={form.provider}
+              onChange={(event) => selectProvider(event.target.value)}
+              options={providerSelectOptions}
+              disabled={!catalog}
+            />
+          </div>
+
+          {isOther ? (
+            <Input
+              label="模型名称"
+              value={form.model}
+              onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
+              placeholder="例如：gpt-4o-mini"
+            />
+          ) : (
+            <Select
+              label="模型"
+              value={form.model}
+              onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
+              options={preset ? modelOptions(preset) : []}
+              disabled={!preset}
+            />
+          )}
+
+          <Input
+            label="API Key"
+            type="password"
+            value={form.api_key}
+            onChange={(event) => setForm((current) => ({ ...current, api_key: event.target.value }))}
+            placeholder={editing ? '留空则保留原密钥' : 'sk-...'}
+            autoComplete="off"
+          />
+
+          {isOther ? (
+            <Input
+              label="Base URL"
+              value={form.base_url}
+              onChange={(event) => setForm((current) => ({ ...current, base_url: event.target.value }))}
+              placeholder="https://api.example.com/v1"
+            />
+          ) : (
+            preset && (
+              <p className="modal-status" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Lock size={13} /> 接口地址已自动配置：{preset.baseUrl}
+                {preset.compatNote ? ` · ${preset.compatNote}` : ''}
+              </p>
+            )
+          )}
+
+          {isOther && (
+            <div>
+              <button type="button" className="chip" onClick={() => setShowAdvanced((value) => !value)}>
+                {showAdvanced ? '收起高级设置' : '高级设置'}
+              </button>
+              {showAdvanced && (
+                <div style={{ marginTop: 10 }}>
+                  <Select
+                    label="兼容模式"
+                    value={form.api_mode}
+                    onChange={(event) => setForm((current) => ({ ...current, api_mode: event.target.value as AiApiMode }))}
+                    options={[
+                      { value: 'openai', label: 'OpenAI 兼容（/chat/completions）' },
+                      { value: 'gemini', label: 'Gemini 兼容（generateContent）' },
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="note-panel mint">
+            <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Sparkles size={13} /> 密钥将由服务端加密保存
+            </strong>
+            <span>不会返回客户端、写入本地存储或记录到日志。</span>
+          </div>
+
+          <div className="default-row">
+            <span>保存后设为默认</span>
             <Switch
               checked={form.is_default}
               onChange={(checked) => setForm((current) => ({ ...current, is_default: checked }))}
             />
-            设为默认配置
-          </label>
-          <div className="ai-config-save-buttons">
+          </div>
+
+          <div className="page-card-foot">
+            <Button variant="secondary" onClick={onClose}>
+              取消
+            </Button>
             <Button
               variant="secondary"
-              size="sm"
               disabled={saving || !encryptionAvailable}
               iconLeft={saving ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
               onClick={() => handleSave(true)}
@@ -392,20 +424,15 @@ export function AiSettingsModal({
               保存并验证
             </Button>
             <Button
-              size="sm"
               disabled={saving || !encryptionAvailable}
               iconLeft={saving ? <Loader2 className="spin" size={15} /> : editing ? <Save size={15} /> : <Plus size={15} />}
               onClick={() => handleSave(false)}
+              style={{ marginLeft: 'auto' }}
             >
               {editing ? '保存修改' : '保存配置'}
             </Button>
           </div>
-        </div>
-        {!editing && (
-          <p className="ai-config-note ai-config-hint">
-            <Sparkles size={12} /> 官方服务商无需填写接口地址，选择模型并填入 API Key 即可。
-          </p>
-        )}
+        </section>
       </div>
     </Modal>
   );

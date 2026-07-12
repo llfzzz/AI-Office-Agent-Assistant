@@ -1,9 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
-import type { MeetingAttachmentKind, MeetingRecord } from './index';
+import type { MeetingAttachmentKind } from './index';
 
 /** Top-level pages the app can route to. */
 export type View =
-  | 'home'
   | 'skills'
   | 'compose'
   | 'weekly'
@@ -17,19 +16,24 @@ export type View =
 
 export type AuthMode = 'login' | 'register';
 
-export type NavGroupId = 'agent' | 'memory' | 'records';
+export type NavGroupId = 'agent' | 'memory' | 'records' | 'help';
 
 export type NavItemDefinition = {
   view: View;
   label: string;
   icon: LucideIcon;
-  disabled?: (context: { selectedMeeting: MeetingRecord | null }) => boolean;
 };
 
 export type NavGroupDefinition = {
   id: NavGroupId;
   label: string;
   items: NavItemDefinition[];
+};
+
+/** Per-view topbar copy (title + one-line subtitle). */
+export type ViewMeta = {
+  title: string;
+  subtitle: string;
 };
 
 export type MeetingAttachmentStatus = 'processing' | 'ready' | 'error';

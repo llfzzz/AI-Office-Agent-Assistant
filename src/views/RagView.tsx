@@ -1,5 +1,6 @@
-import { Database, FilePlus2, Loader2, Settings2, Trash2 } from 'lucide-react';
-import { Button, Input, Switch, Textarea } from '../freejoy';
+import { Loader2, Plus, Save, Search, Trash2 } from 'lucide-react';
+import { Badge, Button, Input, Switch, Textarea } from '../freejoy';
+import { SectionCard } from '../components/SectionCard';
 import type { KnowledgeDocument } from '../types';
 
 type RagPanelProps = {
@@ -19,15 +20,11 @@ type RagPanelProps = {
   onDelete: () => void;
 };
 
-export function RagView(props: RagPanelProps) {
-  return (
-    <section className="rag-page">
-      <RagPanel {...props} />
-    </section>
-  );
+function estimateChunks(content: string) {
+  return Math.max(1, Math.ceil(content.trim().length / 220));
 }
 
-function RagPanel({
+export function RagView({
   enabled,
   documents,
   selectedDocumentId,
@@ -45,98 +42,98 @@ function RagPanel({
 }: RagPanelProps) {
   const canEnable = documents.length > 0;
   const selectedDocument = documents.find((document) => document.id === selectedDocumentId);
-  const selectedLabel = selectedDocument ? '正在编辑已保存资料库' : '正在新建资料库';
+  const active = enabled && canEnable;
 
   return (
-    <div className="panel rag-panel">
-      <div className="panel-heading compact">
-        <div>
-          <span className="eyebrow">RAG 资料库</span>
-          <h2>生成时可选增强</h2>
-        </div>
-        <Switch
-          checked={enabled && canEnable}
-          disabled={!canEnable}
-          onChange={(checked) => onEnabled(checked)}
-          label={enabled && canEnable ? '已启用' : '关闭'}
-        />
+    <>
+      <div className="rag-status-bar">
+        <span className={active ? 'tone-dot mint' : 'tone-dot neutral'} />
+        <strong>{active ? '知识库已启用' : '知识库未启用'}</strong>
+        <Badge tone={canEnable ? 'success' : 'neutral'}>{documents.length} 份资料</Badge>
+        <span className="spacer" />
+        <span className="switch-label">所有 Skill 默认可引用</span>
+        <Switch checked={active} disabled={!canEnable} onChange={(checked) => onEnabled(checked)} />
       </div>
 
-      <div className="rag-management">
-        <aside className="rag-document-list" aria-label="已保存资料库">
-          <div className="rag-list-header">
-            <span>已保存资料</span>
-            <button type="button" className="rag-new-button" onClick={onNewDocument}>
-              <FilePlus2 size={16} />
-              新建
-            </button>
-          </div>
-
-          {documents.length > 0 ? (
-            <div className="rag-doc-items">
+      <div className="rag-columns">
+        <SectionCard title="知识文档" caption="搜索、筛选并管理可引用内容">
+          <Input iconLeft={<Search size={16} />} placeholder="搜索资料" readOnly value="" onChange={() => {}} />
+          <Button full iconLeft={<Plus size={16} />} onClick={onNewDocument}>
+            新建文档
+          </Button>
+          {documents.length === 0 ? (
+            <div className="empty-state">
+              <h3>还没有资料</h3>
+              <p>新建文档后即可被 Skill 引用。</p>
+            </div>
+          ) : (
+            <div className="doc-list">
               {documents.map((document) => (
                 <button
                   key={document.id}
                   type="button"
-                  className={document.id === selectedDocumentId ? 'rag-doc-button active' : 'rag-doc-button'}
+                  className={document.id === selectedDocumentId ? 'doc-row active' : 'doc-row'}
                   onClick={() => onSelectDocument(document)}
                 >
-                  <strong>{document.title}</strong>
-                  <span>
-                    {document.content.length} 字 · {new Date(document.updated_at).toLocaleString()}
-                  </span>
+                  <span className={document.id === selectedDocumentId ? 'tone-dot coral' : 'tone-dot sky'} />
+                  <div className="doc-copy">
+                    <strong>{document.title}</strong>
+                    <span>{estimateChunks(document.content)} 个片段</span>
+                  </div>
                 </button>
               ))}
             </div>
-          ) : (
-            <div className="rag-empty-state">
-              <Database size={22} />
-              <span>还没有保存的资料库</span>
-            </div>
           )}
-        </aside>
+        </SectionCard>
 
-        <div className="rag-editor">
-          <span className="rag-edit-state">{selectedLabel}</span>
-          <div className="form-grid single">
-            <Input
-              label="资料库名称"
-              value={title}
-              onChange={(event) => onTitle(event.target.value)}
-              placeholder="例如：产品背景资料"
-            />
-            <Textarea
-              label="资料库内容"
-              rows={6}
-              value={content}
-              onChange={(event) => onContent(event.target.value)}
-              placeholder="粘贴项目背景、业务规则、术语表或协作约定。保存后才能启用 RAG。"
-            />
+        <SectionCard
+          title="编辑文档"
+          caption={selectedDocument ? '正在编辑已保存资料 · 已启用' : '正在新建资料'}
+        >
+          <Input
+            label="标题"
+            value={title}
+            onChange={(event) => onTitle(event.target.value)}
+            placeholder="例如：产品定位与用户场景"
+          />
+          <Textarea
+            label="内容"
+            rows={9}
+            value={content}
+            onChange={(event) => onContent(event.target.value)}
+            placeholder="粘贴项目背景、业务规则、术语表或协作约定。保存后才能启用 RAG。"
+          />
+          <div className="editor-meta-row">
+            <Badge tone="bloom">自动分段 · {estimateChunks(content)}</Badge>
+            {selectedDocument && (
+              <span className="chip">最近更新 · {new Date(selectedDocument.updated_at).toLocaleDateString()}</span>
+            )}
           </div>
 
-          <div className="button-row tight rag-editor-actions">
-            <div className="rag-primary-actions">
-              <Button
-                variant="secondary"
-                onClick={onSave}
-                disabled={isSaving || !content.trim()}
-                iconLeft={isSaving ? <Loader2 className="spin" size={17} /> : <Settings2 size={17} />}
-              >
-                {selectedDocumentId ? '更新资料库' : '保存资料库'}
-              </Button>
-              <Button
-                variant="danger"
-                onClick={onDelete}
-                disabled={!selectedDocumentId || isDeleting}
-                iconLeft={isDeleting ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
-              >
-                删除
-              </Button>
-            </div>
-            <span className="rag-hint">{canEnable ? `${documents.length} 个资料库可用` : '默认关闭，保存资料库后可启用'}</span>
+          <div className="page-card-foot">
+            <Button
+              variant="ghost"
+              onClick={onDelete}
+              disabled={!selectedDocumentId || isDeleting}
+              iconLeft={isDeleting ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} />}
+            >
+              删除文档
+            </Button>
+            <Button
+              onClick={onSave}
+              disabled={isSaving || !content.trim()}
+              iconLeft={isSaving ? <Loader2 className="spin" size={15} /> : <Save size={15} />}
+              style={{ marginLeft: 'auto' }}
+            >
+              {selectedDocumentId ? '更新并启用' : '保存并启用'}
+            </Button>
           </div>
-        </div>
+
+          <div className="note-panel mint">
+            <span>保存后将自动进入会议、周报和 PRD 的引用范围。</span>
+          </div>
+        </SectionCard>
       </div>
-    </div>
+    </>
   );
 }
