@@ -464,7 +464,7 @@ app.get('/api/feedback', async (req, res) => {
   }
 });
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', generationLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     const validation = validateFeedbackTicket(req.body);
