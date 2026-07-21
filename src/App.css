@@ -1191,6 +1191,255 @@ button.list-row:hover {
   color: var(--sun-700);
 }
 
+/* Quality status row (unified quality gate verdict; icon + text, never color-only) */
+.quality-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  background: var(--surface-soft);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.quality-status svg {
+  flex: none;
+}
+
+.quality-status strong {
+  display: block;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.quality-status.pass svg {
+  color: var(--success-700);
+}
+
+.quality-status.revise svg {
+  color: var(--sun-700);
+}
+
+.quality-status.blocked svg {
+  color: var(--danger-700);
+}
+
+/* Plan summary — expandable "处理说明" (observable steps only, no hidden reasoning) */
+.plan-summary {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.plan-summary summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.plan-summary summary::-webkit-details-marker {
+  display: none;
+}
+
+.plan-summary-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plan-summary summary .mono-line {
+  font-weight: var(--weight-regular);
+}
+
+.plan-summary-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.plan-summary-goal {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.plan-summary-section h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.plan-summary-section ul,
+.plan-summary-section ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  line-height: 1.6;
+}
+
+.plan-summary-note {
+  color: var(--text-subtle);
+}
+
+/* Feedback ticket panel — inline ticket form under generated results */
+.feedback-ticket-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.feedback-ticket-intro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.feedback-ticket-intro svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.feedback-ticket-intro div {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.feedback-ticket-intro strong {
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.feedback-ticket-intro span {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.feedback-ticket-form {
+  display: grid;
+  gap: 12px;
+}
+
+.feedback-ticket-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.feedback-ticket-actions > :first-child {
+  margin-right: auto;
+}
+
+.feedback-ticket-error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--danger-700);
+}
+
+.feedback-ticket-panel.submitted {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--success-100);
+  border-color: transparent;
+}
+
+.feedback-ticket-success {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.feedback-ticket-success svg {
+  flex: none;
+  color: var(--success-700);
+}
+
+.feedback-ticket-success strong {
+  display: block;
+  font-size: 13px;
+  color: var(--success-700);
+}
+
+.feedback-ticket-success span {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Feedback ticket history list */
+.ticket-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ticket-row {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.ticket-row-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ticket-row-top .ticket-no {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.ticket-row-top strong {
+  font-size: 13.5px;
+  color: var(--text);
+  margin-right: auto;
+}
+
+.ticket-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.ticket-row-details {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
 /* 6. Views -------------------------------------------------------------------- */
 
 /* -- Workbench -- */

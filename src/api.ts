@@ -1,13 +1,13 @@
 import type {
   AnalysisResult,
   AuthSession,
+  FeedbackTicketInput,
+  FeedbackTicketRecord,
   HealthResponse,
   KnowledgeDocument,
   FileExtractionResponse,
   MeetingInput,
   MeetingRecord,
-  OfficeFeedbackInput,
-  OfficeFeedbackRecord,
   OfficeOutputRecord,
   OfficeRunResult,
   OfficeTaskInput,
@@ -214,15 +214,15 @@ export function getOfficeOutput(id: string) {
   return requestJson<{ output: OfficeOutputRecord }>(apiUrl(`/office/outputs/${id}`));
 }
 
-export function submitOfficeFeedback(id: string, input: OfficeFeedbackInput) {
-  return requestJson<{ feedback: OfficeFeedbackRecord }>(apiUrl(`/office/outputs/${id}/feedback`), {
+export function submitFeedbackTicket(input: FeedbackTicketInput) {
+  return requestJson<{ feedback: FeedbackTicketRecord }>(apiUrl('/feedback'), {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function listOfficeFeedback() {
-  return requestJson<{ feedback: OfficeFeedbackRecord[] }>(apiUrl('/office/feedback'));
+export function listFeedbackTickets() {
+  return requestJson<{ feedback: FeedbackTicketRecord[] }>(apiUrl('/feedback'));
 }
 
 // --- Per-user AI provider configurations ---------------------------------

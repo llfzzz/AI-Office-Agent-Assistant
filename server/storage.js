@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordToFeedbackTicket } from './feedbackTickets.js';
 
 function normalizeJson(value, fallback) {
   if (value === null || value === undefined || value === '') {
@@ -307,6 +308,9 @@ export async function saveOfficeFeedback(context, officeOutputId, feedback, feed
   const payload = {
     user: context.user.id,
     office_output: officeOutputId,
+    target_type: 'saved_output',
+    target_id: officeOutputId,
+    status: 'submitted',
     skill_id: output.skill_id,
     output_title: output.title,
     accuracy_score: Number(feedback.accuracy_score || 0),
@@ -321,4 +325,52 @@ export async function saveOfficeFeedback(context, officeOutputId, feedback, feed
 
   const record = await context.pb.collection('office_feedback').create(payload);
   return recordToOfficeFeedback(record);
+}
+
+/** List every feedback row for the caller, projected as tickets (legacy rating
+ * rows included via the compatibility mapping). */
+export async function listFeedbackTickets(context) {
+  const records = await context.pb.collection('office_feedback').getFullList({
+    sort: '-created',
+  });
+  return records.map(recordToFeedbackTicket);
+}
+
+/**
+ * Create a feedback ticket. When the ticket targets a saved output, the
+ * caller-scoped lookup doubles as the ownership check — a foreign or missing
+ * id returns null and the route responds 404.
+ */
+export async function saveFeedbackTicket(context, ticket, triage) {
+  let output = null;
+
+  if (ticket.target_type === 'saved_output' && ticket.target_id) {
+    output = await getOfficeOutput(context, ticket.target_id);
+
+    if (!output) {
+      return null;
+    }
+  }
+
+  const payload = {
+    user: context.user.id,
+    target_type: ticket.target_type,
+    target_id: ticket.target_id || '',
+    skill_id: ticket.skill_id || output?.skill_id || '',
+    output_title: ticket.output_title || output?.title || '',
+    issue_type: ticket.issue_type,
+    subject: ticket.subject,
+    details: ticket.details,
+    expected_result: ticket.expected_result || '',
+    impact: ticket.impact || '',
+    status: 'submitted',
+    triage: triage || null,
+  };
+
+  if (output) {
+    payload.office_output = ticket.target_id;
+  }
+
+  const record = await context.pb.collection('office_feedback').create(payload);
+  return recordToFeedbackTicket(record);
 }

@@ -12,13 +12,22 @@ import {
   Wand2,
 } from 'lucide-react';
 import { Badge, Button, Input, Select, Tooltip } from '../freejoy';
+import { FeedbackTicketPanel } from '../components/FeedbackTicketPanel';
+import { QualityStatusCard } from '../components/OfficeResultPanel';
 import { ResultPanel } from '../components/ResultPanel';
 import { SectionCard } from '../components/SectionCard';
 import { StepperPill } from '../components/StepperPill';
 import { MeetingAssetIcon } from '../components/primitives';
+import { useIdentityKey } from '../hooks/useIdentityKey';
 import { attachmentMeta, buildMeetingTranscript, protectedRecordingFileName } from '../lib/format';
 import { meetingFileAccept, meetingTypes, sampleMeeting } from '../data/constants';
-import type { AnalysisResult, MeetingAttachment, MeetingAttachmentKind, MeetingInput } from '../types';
+import type {
+  AnalysisResult,
+  FeedbackTicketRecord,
+  MeetingAttachment,
+  MeetingAttachmentKind,
+  MeetingInput,
+} from '../types';
 
 export function ComposeView({
   form,
@@ -36,6 +45,7 @@ export function ComposeView({
   onError,
   onAnalyze,
   onSave,
+  onTicketSubmitted,
 }: {
   form: MeetingInput;
   attachments: MeetingAttachment[];
@@ -52,6 +62,7 @@ export function ComposeView({
   onError: (message: string) => void;
   onAnalyze: () => void;
   onSave: () => void;
+  onTicketSubmitted: (ticket: FeedbackTicketRecord) => void;
 }) {
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
   const analyzableTextLength = buildMeetingTranscript(form, attachments).trim().length;
@@ -69,6 +80,7 @@ export function ComposeView({
         onSave={onSave}
         onReanalyze={onAnalyze}
         isAnalyzing={isAnalyzing}
+        onTicketSubmitted={onTicketSubmitted}
       />
     );
   }
@@ -221,6 +233,7 @@ function ComposeResult({
   isAnalyzing,
   onSave,
   onReanalyze,
+  onTicketSubmitted,
 }: {
   form: MeetingInput;
   analysis: AnalysisResult;
@@ -228,24 +241,27 @@ function ComposeResult({
   isAnalyzing: boolean;
   onSave: () => void;
   onReanalyze: () => void;
+  onTicketSubmitted: (ticket: FeedbackTicketRecord) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const minutes = analysis.structured_minutes;
-  const score = analysis.quality_check.has_hallucination ? 78 : 92;
   const provider = analysis.provider;
+  const ticketKey = useIdentityKey(analysis);
 
   async function copyAll() {
-    const text = [
-      minutes.one_sentence_summary,
-      '',
-      minutes.summary,
-      '',
-      '决策：',
-      ...minutes.decisions.map((d) => `- ${d.decision}`),
-      '',
-      '待办：',
-      ...minutes.action_items.map((a) => `- ${a.task}（${a.owner || '未指定'}）`),
-    ].join('\n');
+    const text =
+      minutes.copy_ready_minutes ||
+      [
+        minutes.one_sentence_summary,
+        '',
+        minutes.summary,
+        '',
+        '决策：',
+        ...minutes.decisions.map((d) => `- ${d.decision}`),
+        '',
+        '待办：',
+        ...minutes.action_items.map((a) => `- ${a.task}（${a.owner || '未提及'}）`),
+      ].join('\n');
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -293,19 +309,10 @@ function ComposeResult({
             来源：{provider ? `${analysis.source === 'default-api' ? 'API' : '体验'} · ${provider.model}` : '体验模式'}
             {` · ${form.raw_transcript.trim().length} 字`}
           </div>
-          <div className="quality-card">
-            <div className="quality-card-head">
-              <strong>质量检查</strong>
-              <span className="quality-score">Copy-ready {score}/100</span>
-            </div>
-            <div className="quality-bar">
-              <span style={{ width: `${score}%` }} />
-            </div>
-            <p>
-              已识别 {minutes.decisions.length} 项决策、{minutes.action_items.length} 项待办，
-              {analysis.quality_check.has_hallucination ? '存在需复核的疑点。' : '未发现明显时间冲突。'}
-            </p>
-          </div>
+          <QualityStatusCard check={analysis.quality_check} revisionApplied={analysis.revision_applied} />
+          <p className="form-note">
+            已识别 {minutes.decisions.length} 项决策、{minutes.action_items.length} 项待办。
+          </p>
           <Button
             variant="ghost"
             size="sm"
@@ -315,6 +322,15 @@ function ComposeResult({
           >
             重新生成
           </Button>
+          <FeedbackTicketPanel
+            key={ticketKey}
+            target={{
+              target_type: 'generation',
+              skill_id: 'meeting_minutes',
+              output_title: form.title || '会议纪要',
+            }}
+            onSubmitted={onTicketSubmitted}
+          />
         </SectionCard>
 
         <ResultPanel analysis={analysis} />
