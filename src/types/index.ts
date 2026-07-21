@@ -50,6 +50,10 @@ export interface ActionItem {
   deadline: string;
   priority: string;
   evidence: string;
+  /** v2 fields — absent on legacy saved records. */
+  status?: string;
+  dependencies?: string[];
+  completion_criteria?: string;
 }
 
 export interface Risk {
@@ -79,15 +83,56 @@ export interface StructuredMinutes {
   open_questions: OpenQuestion[];
   long_term_memory: LongTermMemory[];
   keywords: string[];
+  /** v2 fields — absent on legacy saved records. */
+  meeting_purpose?: string;
+  discussion_topics?: Array<{ topic: string; key_points: string[] }>;
+  proposals?: Array<{ proposal: string; status: string }>;
+  follow_ups?: string[];
+  copy_ready_minutes?: string;
 }
 
+export interface QualityIssue {
+  severity: 'critical' | 'high' | 'medium' | 'low' | string;
+  category: string;
+  field_path: string;
+  problem: string;
+  evidence: string;
+  required_fix: string;
+}
+
+export interface QualityScores {
+  factuality: number;
+  completeness: number;
+  actionability: number;
+  clarity: number;
+  professionalism: number;
+  safety: number;
+}
+
+/**
+ * Unified quality gate. New results carry the v2 fields (verdict/scores/…);
+ * legacy saved records carry only the old office- or meeting-shape fields, so
+ * everything is optional and the UI derives a status via qualityStatus().
+ */
 export interface QualityCheck {
-  has_hallucination: boolean;
-  hallucination_items: string[];
-  questionable_decisions: string[];
-  questionable_action_items: string[];
-  missing_risks_or_questions: string[];
-  revision_suggestions: string[];
+  verdict?: 'pass' | 'revise' | 'blocked' | string;
+  scores?: QualityScores;
+  issues?: QualityIssue[];
+  missing_information?: string[];
+  revision_summary?: string[];
+  copy_ready?: boolean;
+  /** Legacy office-shape fields. */
+  has_hallucination?: boolean;
+  hallucination_items?: string[];
+  overclaim_items?: string[];
+  missing_key_points?: string[];
+  unclear_items?: string[];
+  copy_ready_score?: number;
+  revision_suggestions?: string[];
+  /** Legacy meeting-shape fields. */
+  questionable_decisions?: string[];
+  questionable_action_items?: string[];
+  missing_risks_or_questions?: string[];
 }
 
 export interface AnalysisResult {
@@ -102,6 +147,7 @@ export interface AnalysisResult {
   meeting_understanding: MeetingUnderstanding;
   structured_minutes: StructuredMinutes;
   quality_check: QualityCheck;
+  revision_applied?: boolean;
 }
 
 export interface QAEntry {
@@ -187,17 +233,92 @@ export interface OfficeTaskInput {
   linked_meeting_ids?: string[];
 }
 
+export interface PlanSourceItem {
+  source_id: string;
+  source_type: 'primary_input' | 'linked_meeting' | 'rag' | string;
+  purpose: string;
+  authority: 'primary' | 'supporting' | string;
+}
+
+export interface PlanKnownFact {
+  fact: string;
+  source_id: string;
+  evidence: string;
+}
+
+export interface PlanAssumption {
+  assumption: string;
+  reason: string;
+  needs_confirmation: boolean;
+}
+
+export interface PlanMissingInformation {
+  field: string;
+  reason: string;
+  blocking: boolean;
+  fallback_strategy: string;
+}
+
+export interface PlanExecutionStep {
+  step: number;
+  action: string;
+  inputs: string[];
+  expected_result: string;
+  quality_gate: string;
+}
+
+export interface PlanRisk {
+  risk: string;
+  likelihood: string;
+  impact: string;
+  mitigation: string;
+}
+
+/**
+ * Versioned execution plan (schema 2.0). Legacy saved plans (flat v1 shape)
+ * lack schema_version and carry the legacy fields below; the UI normalizes
+ * both via the helpers in lib/office.
+ */
 export interface AgentPlan {
+  schema_version?: string;
+  task_summary?: string;
   user_goal: string;
-  detected_intent: SkillId | 'unknown';
   selected_skill: SkillId;
   confidence: 'high' | 'medium' | 'low' | string;
-  required_inputs: string[];
-  missing_information: string[];
-  use_rag: boolean;
-  execution_steps: string[];
-  expected_outputs: string[];
-  risk_notes: string[];
+  audience?: string[];
+  deliverable?: {
+    type: string;
+    language: string;
+    tone: string;
+    format: string;
+  };
+  source_inventory?: PlanSourceItem[];
+  known_facts?: PlanKnownFact[];
+  assumptions?: PlanAssumption[];
+  missing_information?: Array<PlanMissingInformation | string>;
+  success_criteria?: string[];
+  execution_steps?: Array<PlanExecutionStep | string>;
+  output_outline?: string[];
+  risk_register?: PlanRisk[];
+  safety_checks?: string[];
+  expected_outputs?: string[];
+  clarification_questions?: string[];
+  /** Legacy v1 fields (previously saved records). */
+  detected_intent?: SkillId | 'unknown' | string;
+  required_inputs?: string[];
+  use_rag?: boolean;
+  risk_notes?: string[];
+}
+
+export interface WeeklyPlanItem {
+  /** v2 field; legacy records use `plan` instead. */
+  objective?: string;
+  plan?: string;
+  deliverable?: string;
+  priority?: string;
+  deadline?: string;
+  dependency?: string;
+  basis: string;
 }
 
 export interface WeeklyReportOutput {
@@ -213,12 +334,18 @@ export interface WeeklyReportOutput {
     impact: string;
     suggestion: string;
   }>;
-  next_week_plan: Array<{
-    plan: string;
-    basis: string;
-  }>;
+  next_week_plan: WeeklyPlanItem[];
   support_needed: string[];
   copy_ready_report: string;
+  /** v2 fields — absent on legacy saved records. */
+  reporting_period?: string;
+  executive_summary?: string;
+  in_progress?: Array<{ item: string; status: string; evidence: string }>;
+  milestones_or_metrics?: string[];
+  blockers?: string[];
+  dependencies?: string[];
+  cross_team_items?: string[];
+  management_highlights?: string[];
 }
 
 export interface PrdReviewOutput {
@@ -235,6 +362,9 @@ export interface PrdReviewOutput {
   acceptance_criteria: Array<{
     criterion: string;
     verification_method: string;
+    given?: string;
+    when?: string;
+    then?: string;
   }>;
   engineering_notes: string[];
   testing_notes: string[];
@@ -243,17 +373,25 @@ export interface PrdReviewOutput {
     mitigation: string;
   }>;
   prd_draft: string;
+  /** v2 fields — absent on legacy saved records. */
+  review_readiness?: { level: string; conclusion: string };
+  problem_statement?: string;
+  target_users?: string[];
+  user_scenarios?: string[];
+  non_goals?: string[];
+  success_metrics?: Array<{ metric: string; status: string }>;
+  functional_requirements?: Array<{ id: string; requirement: string; priority: string }>;
+  business_rules?: string[];
+  state_and_permission_notes?: string[];
+  data_api_analytics?: string[];
+  non_functional_requirements?: string[];
+  dependencies?: string[];
+  edge_cases?: string[];
+  open_questions?: string[];
+  rollout_notes?: string[];
 }
 
-export interface OfficeQualityCheck {
-  has_hallucination: boolean;
-  hallucination_items: string[];
-  overclaim_items: string[];
-  missing_key_points: string[];
-  unclear_items: string[];
-  copy_ready_score: number;
-  revision_suggestions: string[];
-}
+export type OfficeQualityCheck = QualityCheck;
 
 export interface OfficeRunResult {
   source: SourceType;
@@ -263,6 +401,7 @@ export interface OfficeRunResult {
   agent_plan: AgentPlan;
   skill_output: WeeklyReportOutput | PrdReviewOutput | StructuredMinutes;
   quality_check: OfficeQualityCheck;
+  revision_applied?: boolean;
 }
 
 export interface OfficeOutputRecord {
@@ -278,31 +417,39 @@ export interface OfficeOutputRecord {
   updated_at: string;
 }
 
-export interface OfficeFeedbackInput {
-  accuracy_score: number;
-  copyability_score: number;
-  completeness_score: number;
-  needs_heavy_edit: boolean;
-  missing_info: string;
-  hallucination: string;
-  suggestion: string;
+export type FeedbackTargetType = 'generation' | 'saved_output';
+
+/** What a feedback ticket is about — a fresh generation or a saved output. */
+export interface FeedbackTicketTarget {
+  target_type: FeedbackTargetType;
+  target_id?: string;
+  skill_id: SkillId | '';
+  output_title: string;
 }
 
-export interface FeedbackSummary {
-  feedback_summary: string;
-  problem_categories: string[];
-  iteration_suggestions: string[];
-  priority: 'high' | 'medium' | 'low' | string;
-  next_prompt_adjustment: string;
-  next_product_adjustment: string;
+export interface FeedbackTicketInput extends FeedbackTicketTarget {
+  issue_type: string;
+  subject: string;
+  details: string;
+  expected_result?: string;
+  impact?: string;
 }
 
-export interface OfficeFeedbackRecord extends OfficeFeedbackInput {
+export interface FeedbackTicketRecord {
   id: string;
+  ticket_no: string;
+  target_type: FeedbackTargetType | string;
+  target_id: string;
   office_output: string;
   skill_id: SkillId | '';
   output_title: string;
-  feedback_summary: FeedbackSummary | null;
+  issue_type: string;
+  subject: string;
+  details: string;
+  expected_result: string;
+  impact: string;
+  status: string;
+  legacy: boolean;
   created_at: string;
   updated_at: string;
 }

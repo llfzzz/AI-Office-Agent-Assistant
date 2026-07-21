@@ -15,9 +15,9 @@ import {
   getCurrentUser,
   getMeeting,
   loginUser,
+  listFeedbackTickets,
   listKnowledgeDocuments,
   listMeetings,
-  listOfficeFeedback,
   listOfficeOutputs,
   registerUser,
   saveKnowledgeDocument,
@@ -25,7 +25,6 @@ import {
   saveOfficeOutput,
   storeToken,
   runOfficeSkill,
-  submitOfficeFeedback,
   transcribeAudio,
   listAiConfigs,
   getAiProviderCatalog,
@@ -38,7 +37,7 @@ import {
 import './App.css';
 import { Alert, Spinner, Tooltip } from './freejoy';
 import type { AiConfig, AiConfigInput, AiProviderCatalog } from './aiProvider';
-import { blankForm, blankFeedbackForm, blankPrdTask, blankWeeklyTask } from './data/constants';
+import { blankForm, blankPrdTask, blankWeeklyTask } from './data/constants';
 import { buildMeetingTranscript, createAttachmentId, inferUploadKind, protectedRecordingFileName } from './lib/format';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
 import {
@@ -67,6 +66,7 @@ import type {
   AnalysisResult,
   AuthMode,
   AuthSession,
+  FeedbackTicketRecord,
   HealthResponse,
   KnowledgeDocument,
   MeetingAttachment,
@@ -74,8 +74,6 @@ import type {
   MeetingInput,
   MeetingRecord,
   NavGroupId,
-  OfficeFeedbackInput,
-  OfficeFeedbackRecord,
   OfficeOutputRecord,
   OfficeRunResult,
   OfficeTaskInput,
@@ -118,9 +116,8 @@ function App() {
   const [officeResult, setOfficeResult] = useState<OfficeRunResult | null>(null);
   const [lastOfficeInput, setLastOfficeInput] = useState<OfficeTaskInput | null>(null);
   const [officeOutputs, setOfficeOutputs] = useState<OfficeOutputRecord[]>([]);
-  const [officeFeedback, setOfficeFeedback] = useState<OfficeFeedbackRecord[]>([]);
+  const [officeFeedback, setOfficeFeedback] = useState<FeedbackTicketRecord[]>([]);
   const [selectedOfficeOutputId, setSelectedOfficeOutputId] = useState('');
-  const [feedbackForm, setFeedbackForm] = useState<OfficeFeedbackInput>(blankFeedbackForm);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -131,7 +128,6 @@ function App() {
   const [isDeletingKnowledge, setIsDeletingKnowledge] = useState(false);
   const [isRunningOffice, setIsRunningOffice] = useState(false);
   const [isSavingOfficeOutput, setIsSavingOfficeOutput] = useState(false);
-  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [officeListLoading, setOfficeListLoading] = useState(false);
   const [error, setError] = useState('');
@@ -248,7 +244,7 @@ function App() {
 
     let cancelled = false;
 
-    Promise.all([listOfficeOutputs(), listOfficeFeedback()])
+    Promise.all([listOfficeOutputs(), listFeedbackTickets()])
       .then(([outputsPayload, feedbackPayload]) => {
         if (cancelled) return;
         setOfficeOutputs(outputsPayload.outputs);
@@ -718,21 +714,10 @@ function App() {
     showView('skills');
   }
 
-  async function handleSubmitOfficeFeedback() {
-    if (!selectedOfficeOutput) return;
-
-    setError('');
-    setIsSubmittingFeedback(true);
-    try {
-      const payload = await submitOfficeFeedback(selectedOfficeOutput.id, feedbackForm);
-      setOfficeFeedback((current) => [payload.feedback, ...current]);
-      setFeedbackForm(blankFeedbackForm);
-      showView('feedback');
-    } catch (err) {
-      setError(err instanceof Error ? `${err.message}。如果是首次升级，请先运行 npm run pb:migrate。` : '提交反馈失败');
-    } finally {
-      setIsSubmittingFeedback(false);
-    }
+  function handleTicketSubmitted(ticket: FeedbackTicketRecord) {
+    // Keep the user on the current result page; the ticket panel itself shows
+    // the success state. We only sync the local ticket list.
+    setOfficeFeedback((current) => [ticket, ...current.filter((item) => item.id !== ticket.id)]);
   }
 
   if (isRestoringSession) {
@@ -886,6 +871,7 @@ function App() {
             onError={setError}
             onAnalyze={handleAnalyze}
             onSave={handleSave}
+            onTicketSubmitted={handleTicketSubmitted}
           />
         )}
 
@@ -900,6 +886,7 @@ function App() {
             onTask={setWeeklyTask}
             onRun={() => handleRunOffice(weeklyTask)}
             onSave={handleSaveOfficeOutput}
+            onTicketSubmitted={handleTicketSubmitted}
           />
         )}
 
@@ -913,6 +900,7 @@ function App() {
             onTask={setPrdTask}
             onRun={() => handleRunOffice(prdTask)}
             onSave={handleSaveOfficeOutput}
+            onTicketSubmitted={handleTicketSubmitted}
           />
         )}
 
@@ -970,11 +958,8 @@ function App() {
             outputs={officeOutputs}
             selectedOutput={selectedOfficeOutput}
             loading={officeListLoading}
-            feedbackForm={feedbackForm}
-            isSubmittingFeedback={isSubmittingFeedback}
             onSelectOutput={setSelectedOfficeOutputId}
-            onFeedbackForm={setFeedbackForm}
-            onSubmitFeedback={handleSubmitOfficeFeedback}
+            onTicketSubmitted={handleTicketSubmitted}
           />
         )}
 

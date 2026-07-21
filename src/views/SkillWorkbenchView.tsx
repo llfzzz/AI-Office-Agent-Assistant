@@ -162,10 +162,10 @@ export function SkillWorkbenchView({
           <div className="pending-feedback">
             <div>
               <strong>{feedbackCount}</strong>
-              <span>待处理反馈</span>
+              <span>反馈工单</span>
             </div>
             <Button variant="secondary" size="sm" iconLeft={<ClipboardList size={15} />} onClick={() => onOpenView('feedback')}>
-              反馈记录
+              查看工单
             </Button>
           </div>
           <div className="chip-row">

@@ -1,7 +1,6 @@
 import type {
   MeetingAttachmentKind,
   MeetingInput,
-  OfficeFeedbackInput,
   OfficeTaskInput,
   SkillId,
   View,
@@ -91,16 +90,6 @@ export const blankPrdTask: OfficeTaskInput = {
   },
   rag: { enabled: false },
   linked_meeting_ids: [],
-};
-
-export const blankFeedbackForm: OfficeFeedbackInput = {
-  accuracy_score: 4,
-  copyability_score: 4,
-  completeness_score: 4,
-  needs_heavy_edit: false,
-  missing_info: '',
-  hallucination: '',
-  suggestion: '',
 };
 
 export const skillCards: Array<{

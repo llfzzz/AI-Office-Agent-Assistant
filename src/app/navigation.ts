@@ -35,7 +35,7 @@ export const navigationGroups: NavGroupDefinition[] = [
     label: '记录与改进',
     items: [
       { view: 'outputs', label: '输出记录', icon: History },
-      { view: 'feedback', label: '反馈迭代', icon: MessagesSquare },
+      { view: 'feedback', label: '问题反馈', icon: MessagesSquare },
     ],
   },
   {
@@ -54,8 +54,8 @@ export const viewMeta: Record<View, ViewMeta> = {
   library: { title: '会议记忆', subtitle: '检索会议、决策、待办与长期记忆' },
   detail: { title: '会议详情', subtitle: '在当前会议上下文内追问与跟进' },
   rag: { title: 'RAG 知识库', subtitle: '管理可被 AI Skill 引用的团队知识' },
-  outputs: { title: '输出记录', subtitle: '查看历史输出并提交具体评价' },
-  feedback: { title: '反馈迭代', subtitle: '聚合高频问题，把低分反馈变成改进项' },
+  outputs: { title: '输出记录', subtitle: '查看历史输出，需要时直接反馈问题' },
+  feedback: { title: '问题反馈', subtitle: '提交反馈工单，系统会记录这次问题' },
   docs: { title: '产品指南', subtitle: '快速开始、能力边界与故障恢复' },
 };
 

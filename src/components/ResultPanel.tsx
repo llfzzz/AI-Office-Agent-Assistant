@@ -32,8 +32,22 @@ export function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
       )}
 
       <TintPanel tone="peach" title="会议摘要">
+        {minutes.meeting_purpose && minutes.meeting_purpose !== '未提及' && (
+          <div className="mono-line">会议目的：{minutes.meeting_purpose}</div>
+        )}
         <p>{minutes.summary || minutes.one_sentence_summary}</p>
       </TintPanel>
+
+      {minutes.discussion_topics && minutes.discussion_topics.length > 0 && (
+        <TintPanel tone="yellow" title="讨论主题">
+          {minutes.discussion_topics.map((topic, index) => (
+            <div key={index}>
+              <strong>{topic.topic}</strong>
+              {topic.key_points.length > 0 && <div className="mono-line">{topic.key_points.join('；')}</div>}
+            </div>
+          ))}
+        </TintPanel>
+      )}
 
       <TintPanel tone="sky" title="关键决策" index={1}>
         {minutes.decisions.length === 0 ? (
@@ -46,6 +60,19 @@ export function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
             </div>
           ))
         )}
+        {minutes.proposals && minutes.proposals.length > 0 && (
+          <div>
+            <span className="eyebrow" style={{ display: 'block', margin: '8px 0 4px' }}>
+              讨论中的提议（未拍板）
+            </span>
+            {minutes.proposals.map((item, index) => (
+              <div key={index} className="mono-line">
+                {item.proposal}
+                {item.status ? `（${item.status}）` : ''}
+              </div>
+            ))}
+          </div>
+        )}
       </TintPanel>
 
       <TintPanel tone="mint" title="待办事项" index={2}>
@@ -56,8 +83,16 @@ export function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
             <div key={index}>
               <strong>{item.task}</strong>
               <div className="mono-line">
-                {[item.owner, item.deadline, item.priority].filter(Boolean).join(' · ')}
+                {[
+                  item.owner && `负责人：${item.owner}`,
+                  item.deadline && `截止：${item.deadline}`,
+                  item.priority,
+                  item.status && item.status !== '未提及' ? item.status : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </div>
+              {item.completion_criteria && <div className="mono-line">完成标准：{item.completion_criteria}</div>}
             </div>
           ))
         )}
@@ -83,6 +118,14 @@ export function ResultPanel({ analysis }: { analysis: AnalysisResult | null }) {
           </>
         )}
       </TintPanel>
+
+      {minutes.follow_ups && minutes.follow_ups.length > 0 && (
+        <TintPanel tone="yellow" title="后续跟进">
+          {minutes.follow_ups.map((item, index) => (
+            <div key={index}>{item}</div>
+          ))}
+        </TintPanel>
+      )}
 
       <TintPanel tone="lavender" title="长期记忆" index={4}>
         {minutes.long_term_memory.length === 0 ? (

@@ -15,7 +15,7 @@ const WORKFLOW = [
   { title: '准备材料', desc: '标题、人员、正文与附件' },
   { title: '生成结果', desc: 'AI 结构化并显示引用来源' },
   { title: '检查保存', desc: '确认自检与风险后入库' },
-  { title: '评价改进', desc: '评分反馈进入迭代看板' },
+  { title: '问题反馈', desc: '结果下方可直接提交反馈工单' },
 ];
 
 const STATUS = [
