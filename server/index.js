@@ -4,7 +4,16 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeMeeting, answerQuestion, planOfficeTask, runOfficeSkill, summarizeFeedback } from './analyzer.js';
+import {
+  analyzeMeeting,
+  answerQuestion,
+  planOfficeTask,
+  runOfficeSkill,
+  summarizeFeedback,
+  triageFeedbackTicket,
+} from './analyzer.js';
+import { validateFeedbackTicket } from './feedbackTickets.js';
+import { sanitizeMeetingInput, sanitizeOfficeInput } from './promptSafety.js';
 import { getProviderMeta } from './gemini.js';
 import { isEncryptionAvailable } from './crypto.js';
 import { publicCatalog } from './providers/catalog.js';
@@ -22,9 +31,11 @@ import {
   appendQuestionAnswer,
   getMeeting,
   getOfficeOutput,
+  listFeedbackTickets,
   listMeetings,
   listOfficeFeedback,
   listOfficeOutputs,
+  saveFeedbackTicket,
   saveMeeting,
   saveOfficeFeedback,
   saveOfficeOutput,
@@ -220,12 +231,14 @@ app.get('/api/auth/me', async (req, res) => {
 app.post('/api/meetings/analyze', async (req, res) => {
   try {
     const context = await requireAuth(req);
-    if (!req.body?.raw_transcript?.trim()) {
+    const input = sanitizeMeetingInput(req.body);
+
+    if (!input.raw_transcript) {
       res.status(400).json({ error: 'raw_transcript is required' });
       return;
     }
 
-    const analysis = await analyzeMeeting(req.body, context, await getActiveAiProvider(context));
+    const analysis = await analyzeMeeting(input, context, await getActiveAiProvider(context));
     res.json(analysis);
   } catch (error) {
     sendError(res, error);
@@ -338,13 +351,14 @@ app.post('/api/meetings/:id/ask', async (req, res) => {
 app.post('/api/office/plan', async (req, res) => {
   try {
     const context = await requireAuth(req);
+    const input = sanitizeOfficeInput(req.body);
 
-    if (!req.body?.title && !req.body?.content) {
+    if (!input.title && !input.content) {
       res.status(400).json({ error: 'title or content is required' });
       return;
     }
 
-    const result = await planOfficeTask(req.body, context, await getActiveAiProvider(context));
+    const result = await planOfficeTask(input, context, await getActiveAiProvider(context));
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -354,13 +368,14 @@ app.post('/api/office/plan', async (req, res) => {
 app.post('/api/office/run', async (req, res) => {
   try {
     const context = await requireAuth(req);
+    const input = sanitizeOfficeInput(req.body);
 
-    if (!req.body?.content?.trim()) {
+    if (!input.content) {
       res.status(400).json({ error: 'content is required' });
       return;
     }
 
-    const result = await runOfficeSkill(req.body, context, await getActiveAiProvider(context));
+    const result = await runOfficeSkill(input, context, await getActiveAiProvider(context));
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -398,6 +413,53 @@ app.get('/api/office/feedback', async (req, res) => {
     const context = await requireAuth(req);
     const feedback = await listOfficeFeedback(context);
     res.json({ feedback });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// --- Feedback tickets ------------------------------------------------------
+// Ticket-style feedback works for both unsaved generation results and saved
+// outputs. Validation is deterministic (allowlisted issue types, length
+// limits); when a saved output is referenced, the owner-scoped lookup inside
+// saveFeedbackTicket enforces ownership (foreign ids 404).
+app.get('/api/feedback', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const feedback = await listFeedbackTickets(context);
+    res.json({ feedback });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const context = await requireAuth(req);
+    const validation = validateFeedbackTicket(req.body);
+
+    if (!validation.ok) {
+      res.status(400).json({ error: '反馈内容未通过校验', fields: validation.errors });
+      return;
+    }
+
+    // Internal triage must never block ticket creation.
+    let triage = null;
+
+    try {
+      triage = await triageFeedbackTicket(validation.value, await getActiveAiProvider(context));
+    } catch {
+      triage = null;
+    }
+
+    const feedback = await saveFeedbackTicket(context, validation.value, triage);
+
+    if (!feedback) {
+      res.status(404).json({ error: 'office output not found' });
+      return;
+    }
+
+    res.status(201).json({ feedback });
   } catch (error) {
     sendError(res, error);
   }

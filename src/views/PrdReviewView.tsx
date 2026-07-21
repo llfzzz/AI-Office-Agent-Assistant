@@ -2,7 +2,7 @@ import { Loader2, Wand2 } from 'lucide-react';
 import { Badge, Button, Input, Textarea } from '../freejoy';
 import { OfficeResultPanel } from '../components/OfficeResultPanel';
 import { SectionCard } from '../components/SectionCard';
-import type { OfficeRunResult, OfficeTaskInput } from '../types';
+import type { FeedbackTicketRecord, OfficeRunResult, OfficeTaskInput } from '../types';
 
 const REVIEW_FOCUS = ['范围', '验收', '风险', '数据闭环'];
 
@@ -10,6 +10,7 @@ export function PrdReviewView({
   task,
   canUseRag,
   result,
+  onTicketSubmitted,
   isRunning,
   isSaving,
   onTask,
@@ -19,6 +20,7 @@ export function PrdReviewView({
   task: OfficeTaskInput;
   canUseRag: boolean;
   result: OfficeRunResult | null;
+  onTicketSubmitted: (ticket: FeedbackTicketRecord) => void;
   isRunning: boolean;
   isSaving: boolean;
   onTask: (task: OfficeTaskInput) => void;
@@ -112,7 +114,7 @@ export function PrdReviewView({
         </div>
       </SectionCard>
 
-      <OfficeResultPanel result={result} emptyTitle="等待生成需求评审材料" isSaving={isSaving} onSave={onSave} />
+      <OfficeResultPanel result={result} emptyTitle="等待生成需求评审材料" isSaving={isSaving} onSave={onSave} onTicketSubmitted={onTicketSubmitted} />
     </div>
   );
 }

@@ -3,13 +3,14 @@ import { Badge, Button, Input, Textarea } from '../freejoy';
 import { OfficeResultPanel } from '../components/OfficeResultPanel';
 import { SectionCard } from '../components/SectionCard';
 import { skillName } from '../lib/office';
-import type { MeetingRecord, OfficeRunResult, OfficeTaskInput } from '../types';
+import type { FeedbackTicketRecord, MeetingRecord, OfficeRunResult, OfficeTaskInput } from '../types';
 
 export function WeeklyReportView({
   task,
   meetings,
   canUseRag,
   result,
+  onTicketSubmitted,
   isRunning,
   isSaving,
   onTask,
@@ -20,6 +21,7 @@ export function WeeklyReportView({
   meetings: MeetingRecord[];
   canUseRag: boolean;
   result: OfficeRunResult | null;
+  onTicketSubmitted: (ticket: FeedbackTicketRecord) => void;
   isRunning: boolean;
   isSaving: boolean;
   onTask: (task: OfficeTaskInput) => void;
@@ -125,7 +127,7 @@ export function WeeklyReportView({
         </div>
       </SectionCard>
 
-      <OfficeResultPanel result={result} emptyTitle={`等待生成${skillName('weekly_report')}`} isSaving={isSaving} onSave={onSave} />
+      <OfficeResultPanel result={result} emptyTitle={`等待生成${skillName('weekly_report')}`} isSaving={isSaving} onSave={onSave} onTicketSubmitted={onTicketSubmitted} />
     </div>
   );
 }
