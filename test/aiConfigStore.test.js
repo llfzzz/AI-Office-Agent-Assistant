@@ -124,16 +124,20 @@ test('assertSafeCustomUrl rejects empty, malformed, and non-http(s) URLs', () =>
   assert.throws(() => assertSafeCustomUrl('ftp://x.example.com'), (err) => err.status === 400);
 });
 
-test('assertSafeCustomUrl blocks http and private hosts in production', () => {
+test('assertSafeCustomUrl blocks http and private hosts unconditionally (no NODE_ENV gate)', () => {
+  // The SSRF guard must be enforced regardless of NODE_ENV. Verify it holds
+  // even with NODE_ENV explicitly unset (the pre-remediation bypass condition).
   const prev = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
+  delete process.env.NODE_ENV;
   try {
     assert.throws(() => assertSafeCustomUrl('http://api.example.com'), /HTTPS/);
     assert.throws(() => assertSafeCustomUrl('https://localhost:8080'), /本地|内网/);
     assert.throws(() => assertSafeCustomUrl('https://192.168.1.5'), /本地|内网/);
     assert.throws(() => assertSafeCustomUrl('https://127.0.0.1'), /本地|内网/);
     assert.throws(() => assertSafeCustomUrl('https://10.0.0.9'), /本地|内网/);
-    // A public https host still passes in production.
+    assert.throws(() => assertSafeCustomUrl('https://169.254.169.254'), /本地|内网/);
+    assert.throws(() => assertSafeCustomUrl('https://[::1]'), /本地|内网/);
+    // A public https host still passes.
     assert.equal(assertSafeCustomUrl('https://api.deepseek.com'), 'https://api.deepseek.com');
   } finally {
     if (prev === undefined) delete process.env.NODE_ENV;

@@ -32,8 +32,23 @@ import {
 import { checkPocketBase, createPocketBaseClient, pocketBaseUrl, requireAuth } from './pocketbase.js';
 import { transcribeAudio } from './transcriber.js';
 import { extractMeetingFile } from './extractor.js';
+import {
+  securityHeaders,
+  permissionsPolicy,
+  noStoreApi,
+  apiLimiter,
+  loginLimiter,
+  registerLimiter,
+  validateLimiter,
+  configWriteLimiter,
+  uploadLimiter,
+  generationLimiter,
+} from './security.js';
 
 const app = express();
+// Exactly one trusted proxy hop (the local nginx). Makes req.ip the real client
+// IP for rate limiting without trusting arbitrary client-supplied XFF values.
+app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 8788);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '..', 'dist');
@@ -72,12 +87,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Security headers, Permissions-Policy, no-store on API responses, and a
+// general per-IP rate limit — registered before all routes (including the
+// raw-body upload routes below) so every response is covered.
+app.use(securityHeaders());
+app.use(permissionsPolicy);
+app.use('/api', noStoreApi);
+app.use('/api', apiLimiter);
+
 // Raw-body upload endpoints are registered before the JSON body parser:
 // a global express.json() would otherwise consume an uploaded .json meeting
 // file (parsing it into an object under the JSON body limit) before
 // express.raw() could capture the Buffer.
 app.post(
   '/api/audio/transcribe',
+  uploadLimiter,
   express.raw({
     type: ['audio/*', 'video/mp4', 'video/webm', 'application/octet-stream'],
     limit: '25mb',
@@ -99,6 +123,7 @@ app.post(
 
 app.post(
   '/api/files/extract',
+  uploadLimiter,
   express.raw({
     type: '*/*',
     limit: '25mb',
@@ -129,7 +154,7 @@ function sendError(res, error, fallbackStatus = 500) {
   const requestId = res.locals?.requestId || '-';
 
   console.error(`[api] ${requestId} ${status}: ${responseMessage}`);
-  res.status(status).json({ error: responseMessage });
+  res.status(status).json({ error: responseMessage, requestId });
 }
 
 function authPayload(authData) {
@@ -153,7 +178,7 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', registerLimiter, async (req, res) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
@@ -179,11 +204,17 @@ app.post('/api/auth/register', async (req, res) => {
     const authData = await pb.collection('users').authWithPassword(email, password);
     res.status(201).json(authPayload(authData));
   } catch (error) {
-    sendError(res, error, 400);
+    // Anti-enumeration: never reveal whether the email is already registered.
+    // Log the real cause server-side (with a correlation id) but return a
+    // generic message so registration cannot be used to probe for accounts.
+    const requestId = res.locals?.requestId || '-';
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`[api] ${requestId} 400 register failed: ${detail}`);
+    res.status(400).json({ error: '注册失败，请检查输入或稍后再试', requestId });
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
@@ -217,7 +248,7 @@ app.get('/api/auth/me', async (req, res) => {
   }
 });
 
-app.post('/api/meetings/analyze', async (req, res) => {
+app.post('/api/meetings/analyze', generationLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     if (!req.body?.raw_transcript?.trim()) {
@@ -306,7 +337,7 @@ app.get('/api/meetings/:id', async (req, res) => {
   }
 });
 
-app.post('/api/meetings/:id/ask', async (req, res) => {
+app.post('/api/meetings/:id/ask', generationLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     const question = String(req.body?.question || '').trim();
@@ -335,7 +366,7 @@ app.post('/api/meetings/:id/ask', async (req, res) => {
   }
 });
 
-app.post('/api/office/plan', async (req, res) => {
+app.post('/api/office/plan', generationLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
 
@@ -351,7 +382,7 @@ app.post('/api/office/plan', async (req, res) => {
   }
 });
 
-app.post('/api/office/run', async (req, res) => {
+app.post('/api/office/run', generationLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
 
@@ -419,7 +450,7 @@ app.get('/api/office/outputs/:id', async (req, res) => {
   }
 });
 
-app.post('/api/office/outputs/:id/feedback', async (req, res) => {
+app.post('/api/office/outputs/:id/feedback', generationLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     const output = await getOfficeOutput(context, req.params.id);
@@ -464,7 +495,7 @@ app.get('/api/ai-configs', async (req, res) => {
   }
 });
 
-app.post('/api/ai-configs', async (req, res) => {
+app.post('/api/ai-configs', configWriteLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     const config = await createAiConfig(context, req.body || {});
@@ -474,7 +505,7 @@ app.post('/api/ai-configs', async (req, res) => {
   }
 });
 
-app.patch('/api/ai-configs/:id', async (req, res) => {
+app.patch('/api/ai-configs/:id', configWriteLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     const config = await updateAiConfig(context, req.params.id, req.body || {});
@@ -494,7 +525,7 @@ app.post('/api/ai-configs/:id/default', async (req, res) => {
   }
 });
 
-app.post('/api/ai-configs/:id/validate', async (req, res) => {
+app.post('/api/ai-configs/:id/validate', validateLimiter, async (req, res) => {
   try {
     const context = await requireAuth(req);
     const config = await validateAiConfig(context, req.params.id);
@@ -559,8 +590,11 @@ if (existsSync(distPath)) {
   });
 }
 
-app.listen(port, () => {
-  console.log(`AI Office Agent Assistant API running on http://localhost:${port}`);
+// Bind to loopback only: the API must be reachable exclusively through the
+// local nginx reverse proxy, never directly on a public interface.
+const host = process.env.HOST || '127.0.0.1';
+app.listen(port, host, () => {
+  console.log(`AI Office Agent Assistant API running on http://${host}:${port}`);
   console.log('[config] AI provider: resolved per user from saved AI configs (demo mode without one)');
   console.log(`[config] PocketBase: ${pocketBaseUrl}`);
   console.log(

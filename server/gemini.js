@@ -1,12 +1,14 @@
 import { jsonrepair } from 'jsonrepair';
 import { ProxyAgent } from 'undici';
+import { safeFetch } from './ssrfGuard.js';
+import { logUpstreamError, providerHttpError, providerNetworkError } from './aiErrors.js';
 
 const GEMINI_UPLOAD_BASE_URL = 'https://generativelanguage.googleapis.com/upload/v1beta';
 const INLINE_FILE_LIMIT_BYTES = 18 * 1024 * 1024;
 let proxyAgent;
 let proxyAgentUrl = '';
 
-function getGeminiDispatcher() {
+function getProxyDispatcher() {
   const proxyUrl = String(process.env.AI_HTTPS_PROXY || '').trim();
 
   if (!proxyUrl) {
@@ -21,9 +23,13 @@ function getGeminiDispatcher() {
   return proxyAgent;
 }
 
-function fetchGemini(url, options) {
-  const dispatcher = getGeminiDispatcher();
-  return fetch(url, dispatcher ? { ...options, dispatcher } : options);
+// All outbound AI provider requests go through the SSRF-hardened fetch
+// (./ssrfGuard.js): unconditional URL validation, DNS resolution + per-address
+// checks, connection pinning, redirect re-validation, and response caps. When
+// an optional outbound proxy is configured it is used as the dispatcher (URL/DNS
+// validation still runs; socket pinning is skipped for the proxy hop).
+function outboundFetch(url, options, guard = {}) {
+  return safeFetch(url, options, { dispatcher: getProxyDispatcher(), ...guard });
 }
 
 function wait(ms) {
@@ -213,7 +219,7 @@ export async function generateContent(contents, options = {}) {
     let response;
 
     try {
-      response = await fetchGemini(endpointFor(provider), {
+      response = await outboundFetch(endpointFor(provider), {
         method: 'POST',
         signal: controller.signal,
         headers: {
@@ -227,8 +233,14 @@ export async function generateContent(contents, options = {}) {
         throw new Error(`Gemini API request timed out after ${timeoutMs}ms`, { cause: error });
       }
 
-      if (attempt === retryAttempts) {
+      // SSRF blocks and already-sanitized errors are safe and non-retryable.
+      if (error?.isSsrfBlock || error?.sanitized) {
         throw error;
+      }
+
+      if (attempt === retryAttempts) {
+        logUpstreamError('network', String(error?.message || error), provider.apiKey);
+        throw providerNetworkError();
       }
 
       await wait(Math.min(750 * (2 ** (attempt - 1)), 6000));
@@ -239,9 +251,10 @@ export async function generateContent(contents, options = {}) {
 
     if (!response.ok) {
       const detail = await response.text();
+      logUpstreamError(`http ${response.status}`, detail, provider.apiKey);
 
       if (!isRetryableStatus(response.status) || attempt === retryAttempts) {
-        throw new Error(`Gemini API request failed (${response.status}): ${detail}`);
+        throw providerHttpError(response.status);
       }
 
       await wait(retryDelayMs(response, attempt));
@@ -379,7 +392,7 @@ async function generateOpenAiChat(contents, options, provider) {
     let response;
 
     try {
-      response = await fetchGemini(endpoint, {
+      response = await outboundFetch(endpoint, {
         method: 'POST',
         signal: controller.signal,
         headers: {
@@ -393,8 +406,14 @@ async function generateOpenAiChat(contents, options, provider) {
         throw new Error(`AI request timed out after ${timeoutMs}ms`, { cause: error });
       }
 
-      if (attempt === retryAttempts) {
+      // SSRF blocks and already-sanitized errors are safe and non-retryable.
+      if (error?.isSsrfBlock || error?.sanitized) {
         throw error;
+      }
+
+      if (attempt === retryAttempts) {
+        logUpstreamError('network', String(error?.message || error), provider.apiKey);
+        throw providerNetworkError();
       }
 
       await wait(Math.min(750 * (2 ** (attempt - 1)), 6000));
@@ -405,9 +424,10 @@ async function generateOpenAiChat(contents, options, provider) {
 
     if (!response.ok) {
       const detail = await response.text();
+      logUpstreamError(`http ${response.status}`, detail, provider.apiKey);
 
       if (!isRetryableStatus(response.status) || attempt === retryAttempts) {
-        throw new Error(`AI API request failed (${response.status}): ${detail}`);
+        throw providerHttpError(response.status);
       }
 
       await wait(retryDelayMs(response, attempt));
@@ -482,7 +502,7 @@ async function uploadGeminiFile(buffer, meta, provider, options = {}) {
 
   try {
     const uploadBaseUrl = process.env.AI_GEMINI_UPLOAD_BASE_URL || GEMINI_UPLOAD_BASE_URL;
-    const startResponse = await fetchGemini(`${uploadBaseUrl}/files`, {
+    const startResponse = await outboundFetch(`${uploadBaseUrl}/files`, {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -502,7 +522,8 @@ async function uploadGeminiFile(buffer, meta, provider, options = {}) {
 
     if (!startResponse.ok) {
       const detail = await startResponse.text();
-      throw new Error(`Gemini file upload init failed (${startResponse.status}): ${detail}`);
+      logUpstreamError(`upload-init http ${startResponse.status}`, detail, provider.apiKey);
+      throw providerHttpError(startResponse.status);
     }
 
     const uploadUrl = startResponse.headers.get('x-goog-upload-url');
@@ -510,7 +531,7 @@ async function uploadGeminiFile(buffer, meta, provider, options = {}) {
       throw new Error('Gemini file upload did not return an upload URL');
     }
 
-    const uploadResponse = await fetchGemini(uploadUrl, {
+    const uploadResponse = await outboundFetch(uploadUrl, {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -524,7 +545,8 @@ async function uploadGeminiFile(buffer, meta, provider, options = {}) {
 
     if (!uploadResponse.ok) {
       const detail = await uploadResponse.text();
-      throw new Error(`Gemini file upload failed (${uploadResponse.status}): ${detail}`);
+      logUpstreamError(`upload http ${uploadResponse.status}`, detail, provider.apiKey);
+      throw providerHttpError(uploadResponse.status);
     }
 
     const payload = await uploadResponse.json();

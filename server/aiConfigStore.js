@@ -1,6 +1,7 @@
 import { decryptSecret, encryptSecret, isEncryptionAvailable, maskSecret } from './crypto.js';
 import { generateContent } from './gemini.js';
 import { getProviderPreset } from './providers/catalog.js';
+import { assertPublicUrl } from './ssrfGuard.js';
 
 const COLLECTION = 'ai_provider_configs';
 const AUDIT = 'ai_config_audit';
@@ -47,50 +48,13 @@ export function withUserLock(userId, task) {
   return result;
 }
 
-// Block localhost / private-network targets for custom endpoints in production.
-function isPrivateHost(hostname) {
-  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
-  return (
-    host === 'localhost' ||
-    host === '0.0.0.0' ||
-    host === '::1' ||
-    host.endsWith('.local') ||
-    host.endsWith('.internal') ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  );
-}
-
-// Validate a user-supplied custom Base URL. Exported for unit testing.
+// Validate a user-supplied custom Base URL. Delegates to the UNCONDITIONAL
+// SSRF guard (never NODE_ENV-gated) and returns the normalized URL string with
+// any trailing slash removed. Exported for unit testing and reused by
+// resolveProviderFields. Full DNS-resolution + connection pinning happens again
+// at request time in ./ssrfGuard.js safeFetch (defeating DNS rebinding).
 export function assertSafeCustomUrl(rawUrl) {
-  const value = String(rawUrl || '').trim();
-
-  if (!value) {
-    throw httpError('请填写 Base URL', 400);
-  }
-
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw httpError('Base URL 不是有效的地址', 400);
-  }
-
-  const isProd = process.env.NODE_ENV === 'production';
-
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw httpError('Base URL 仅支持 http/https', 400);
-  }
-  if (isProd && url.protocol !== 'https:') {
-    throw httpError('生产环境下 Base URL 必须使用 HTTPS', 400);
-  }
-  if (isProd && isPrivateHost(url.hostname)) {
-    throw httpError('生产环境下不允许使用本地或内网地址', 400);
-  }
-
+  const url = assertPublicUrl(rawUrl);
   return url.toString().replace(/\/+$/, '');
 }
 
